@@ -136,7 +136,8 @@ s'afegeixen camps versionats `audit_version=2` al JSON d'auditoria.
 ## Auditoria de paginació ampliada
 
 Cada pàgina compromesa registra intent, offset, IDs, nombre d'entrades, hash i hora.
-La pàgina pendent es conserva a l'auditoria si una preparació falla. S'etiqueten
+La pàgina pendent es conserva a l'auditoria si una preparació falla; en reprendre,
+resume_log i reconciliation_history preserven els intents/lectures anteriors. S'etiqueten
 IDs repetits dins/entre pàgines, resums conflictius o canviats i pàgines repetides.
 Duplicats idèntics es processen una vegada; els conflictius aturen la pàgina.
 

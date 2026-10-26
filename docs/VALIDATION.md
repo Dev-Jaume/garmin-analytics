@@ -6,7 +6,7 @@ xarxa reals; les execucions s'han fet amb GARMIN_API_KEY retirada del procés de
 
 | Ordre/comprovació | Resultat local |
 | --- | --- |
-| `env -u GARMIN_API_KEY work/venv/bin/python -m pytest -q` | **82 passed in 4.81s**, 0 fallades |
+| `env -u GARMIN_API_KEY work/venv/bin/python -m pytest -q` | **82 passed in 2.35s**, 0 fallades |
 | `ruff check src tests scripts` | Correcte |
 | `ruff format --check src tests scripts` | Correcte |
 | `python scripts/smoke_offline.py` | Dues importacions, una activitat sintètica única |
@@ -47,7 +47,8 @@ amb verificació d'originals i integritat. No s'ha provat PostgreSQL ni infraest
   represa amb els dos staging preparats, sense repetir descàrregues.
 - KeyboardInterrupt a mitja pàgina: estat interrupted i represa idempotent.
 - Fallada entre pàgines: pàgina ja compromesa conservada, represa des de zero i sense
-  duplicació; fallada de xarxa en reconciliació també recuperable.
+  duplicació; fallada de xarxa en reconciliació també recuperable, preservant les lectures
+  anteriors a reconciliation_history i la pàgina pendent a resume_log.
 - Manifest manipulat o original absent: represa bloquejada abans d'escriure SQL.
 - Duplicats dins de pàgina, conflictius i entre pàgines; pàgina repetida i límit de pàgines.
 - Inserció al cap, supressió durant la passada, resum canviat entre passades,

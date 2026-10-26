@@ -158,9 +158,17 @@ class Synchronizer:
                     {
                         "at": now(),
                         "previous_next_offset": row["next_offset"],
+                        "pending_page": deepcopy(audit.get("pending_page")),
                         "strategy": "restart_from_zero",
                     }
                 )
+                if audit.get("reconciliation") is not None:
+                    audit.setdefault("reconciliation_history", []).append(
+                        {
+                            "attempt": audit.get("attempt", 0),
+                            "result": deepcopy(audit["reconciliation"]),
+                        }
+                    )
                 pages = row["pages"]
             else:
                 pages = 0

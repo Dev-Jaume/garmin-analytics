@@ -112,6 +112,7 @@ def test_network_failure_after_first_download_resume_reuses_stage(repo):
     assert server.downloads == {1: 1, 2: 1}
     assert len(repo.list_activities()) == assert_originals(repo) == 2
     assert run_row(repo)["audit"]["resume_log"][0]["strategy"] == "restart_from_zero"
+    assert run_row(repo)["audit"]["resume_log"][0]["pending_page"]["ids"] == ["1", "2"]
     client.close()
 
 
@@ -312,7 +313,7 @@ def test_network_error_in_reconciliation_resume_preserves_downloads(repo):
         nonlocal searches
         if request.url.path == SEARCH_PATH:
             searches += 1
-            if searches == 3:
+            if searches == 4:
                 raise httpx.ReadError("synthetic verification error", request=request)
 
     server.fail = fail
@@ -322,11 +323,15 @@ def test_network_error_in_reconciliation_resume_preserves_downloads(repo):
         sync.run(page_size=1)
     row = run_row(repo)
     assert row["audit"]["failure_log"][-1]["phase"] == "reconcile"
+    assert len(row["audit"]["reconciliation"]["pages"]) == 1
     assert len(repo.list_activities()) == 1
     server.fail = None
     sync.run(resume=row["id"], page_size=1)
     assert server.downloads == {1: 1}
     assert run_row(repo)["status"] == "exhausted"
+    history = run_row(repo)["audit"]["reconciliation_history"]
+    assert history[0]["result"]["status"] == "in_progress"
+    assert len(history[0]["result"]["pages"]) == 1
     client.close()
 
 
