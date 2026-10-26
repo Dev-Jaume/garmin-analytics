@@ -1,89 +1,51 @@
-# Mecanisme proposat de secrets i configuració de Codex Web
+# Seguretat de l'aplicació Windows local
 
-## Estat observat, sense llegir credencials
+Arquitectura vigent: dades només al PC de l'usuari. Sense hosting ni DB externa.
+Codex Web/GitHub desenvolupen codi amb fixtures sintètiques; no conserven l'historial
+personal. Les antigues instruccions de Network secrets de Codex no s'usen a l'app local.
 
-El 26 d'octubre de 2026, l'eina oficial de l'entorn ha informat:
+## Credencials i consentiment
 
-- Connexió de l'entorn disponible.
-- Política desitjada restringida, amb `personal.connectapi.garmin.com` i grups per
-  instal·lar dependències. En la revisió actual la política consta com a `enforced`,
-  amb observacions actuals; inicialment constava com a `unknown`.
-- Una vinculació de secret anomenada `GARMIN_API_KEY`, variable del mateix nom,
-  limitada al domini Personal API. Estat `ready` en la revisió actual.
-- Cap variable de runtime ordinària ni identitat de sortida declarada.
+- Windows Credential Manager a través de WinVaultKeyring explícit de keyring.
+- La UI no usa keyring.get_keyring amb backend triat automàticament ni fallback a fitxer.
+- Clau només al formulari password i al gestor Windows; formulari es buida en enviar.
+- No s'importa GARMIN_API_KEY de l'entorn ni cap secret de Codex. Desar la clau no
+  contacta Garmin. Logs i SQLite no reben clau ni token.
+- La primera connexió requereix consentiment separat. Auto-sync és opcional i depèn
+  d'aquest consentiment; se'n pot revocar l'autorització o eliminar la credencial.
+- OFFICIAL_CONTRACT_VALIDATED=False bloqueja GUI i CLI abans de consultar el gestor.
+  No es pot habilitar des de preferències. Falta el contracte complet: API_CONTRACT.md.
+- Proves amb clau fictícia i MockTransport; mai amb credencials o salut reals.
 
-No s'ha llegit el valor de la clau, canviat aquesta configuració ni fet cap petició
-autenticada. Els valors anteriors són metadades, no una prova d'accés a Garmin
-ni una autorització per utilitzar la clau; la instrucció actual prohibeix aquest accés.
+Quan s'habiliti una versió validada, ApiKey només al header del token oficial,
+JWT/Bearer només en memòria i sense refresh token. TLS verificat, sense redireccions,
+IDs positius ASCII i límits de resposta. No es persisteixen respostes del token.
 
-## Flux proposat perquè es pugui revisar
+## Xarxa local i privacitat
 
-1. En execució explícita de `sync`, llegir només la vinculació `GARMIN_API_KEY`.
-   No carregar `.env` ni descobrir credencials llegint fitxers o l'entorn complet.
-2. Passar la vinculació opaca al header `Authorization: ApiKey ...` de l'endpoint
-   oficial de token, sempre mitjançant el proxy i CA de l'entorn.
-3. Conservar el token retornat únicament en memòria. Fer una nova petició de token
-   quan caduqui o després del primer 401; no assumir un refresh token.
-4. Fer les peticions de recursos amb token. No seguir redireccions. URL base fixa;
-   únicament IDs numèrics. Errors sense cossos HTTP, headers ni credencials.
-5. Guardar salut, ubicacions i originals en DB/arxiu privat, fora de Git. No enviar-los
-   a cap servei de visualització o telemetria. No publicar cap dashboard.
+El launcher fixa listen 127.0.0.1, CORS/XSRF, headless i telemetria desactivada. Obre
+el navegador local quan el servidor respon, sense exposar-lo a la LAN. L'únic bypass
+del proxy és per al health check de l'adreça literal 127.0.0.1; Garmin manté TLS i la
+configuració de xarxa normal del PC. No s'envia cap dada a Plotly Cloud ni a APIs d'IA.
 
-La CLI requereix **dues opcions explícites**: `--secrets-approved` i
-`--contract-verified`. No s'han utilitzat en aquest treball, excepte simulacions
-unitàries amb `httpx.MockTransport` i claus fictícies. Aquestes opcions són una
-barrera operativa, no un sistema d'autorització multiusuari.
+L'aplicació no incorpora autenticació entre usuaris del mateix ordinador: qui tingui
+accés a la sessió Windows o al servidor localhost obert pot consultar el dashboard.
+Tanca-la i bloqueja Windows quan no l'usin. No canviïs el bind ni la publiquis.
 
-## Network secrets i Environment variables
+## Fitxers i logs
 
-Un **Network secret** pot estar mediat pel proxy. El procés Python pot veure un
-marcador, no la clau real. `os.environ.get(...)` no demostra que sigui una credencial
-usable directament. No imprimir el valor ni comprovar-lo per comparació amb una
-clau copiada. Cal confirmar que el mecanisme de l'entorn suporta la substitució
-al header oficial amb la vinculació i domini declarats.
+Dades a LOCALAPPDATA, fora del codi/venv. settings.json conserva consentiment i dades
+manuals de salut, mai secrets. Windows ACL de la carpeta del perfil són la protecció
+d'accés; chmod 600 no és una ACL equivalent a Windows. Recomanat BitLocker/xifratge
+del dispositiu i backups USB xifrats; l'app no xifra SQLite/FIT directament.
 
-Una **Environment variable** ordinària és configuració llegible pel procés; no
-l'hem de tractar automàticament com un gestor segur. Una variable de runtime
-classificada com a secret pel servei pot proporcionar un altre mecanisme segur,
-però s'ha de revisar explícitament. No traslladar la clau a una variable ordinària
-per resoldre una incompatibilitat del proxy.
+Logs rotatius amb codis controlats; no es desa l'excepció sencera, cos HTTP, clau,
+token, nom d'activitat o localització. Els errors originals dels imports es conserven
+només a l'auditoria privada. Git ignora DB, FIT, exports, staging i carpetes de dades.
+No utilitzar OneDrive/Dropbox com a carpeta de dades si es vol exclusivitat al PC.
 
-La implementació accepta la vinculació opaca. Si la plataforma no suporta el flux
-al header oficial, la connexió real continua bloquejada: cal un mecanisme de runtime
-segur compatible i una nova revisió. Les proves actuals no verifiquen la injecció real.
-
-## Passos a la interfície — només després de l'aprovació
-
-1. Al compte Garmin Connect Web, obrir **Personal API Key** des de la pàgina oficial
-   Personal API. Escollir **Create Key**, acceptar les condicions, seleccionar la
-   caducitat i protegir la clau mostrada una única vegada. No enganxar-la al xat.
-2. A Codex Web, obrir la configuració de l'entorn vinculat a aquesta tasca. Revisar
-   l'apartat **Network secrets**: existeix una vinculació `GARMIN_API_KEY`; no cal
-   crear-ne una segona. Confirmar amb la documentació del servei si suporta aquest
-   header, limitar-la a `personal.connectapi.garmin.com` i introduir el valor només
-   al camp segur quan s'hagi autoritzat. No incloure'l a l'ordre de setup.
-3. Revisar l'accés a Internet de l'entorn: host Personal API per runtime; PyPI i
-   files.pythonhosted.org per instal·lació, i developer.garmin.com només si cal
-   descarregar documentació. No s'han modificat les regles existents en aquesta tasca.
-4. Desar/aplicar la configuració amb el flux de revisió del servei i reiniciar
-   l'entorn si ho requereix. Reconsultar `environment_status`: cal observació actual
-   i secret `ready`, i política `enforced`; els estats `unknown` no són suficients.
-5. Completar `docs/API_CONTRACT.md`. L'agent podrà fer la prova autenticada petita
-   només després de la teva aprovació explícita d'aquest mecanisme. No activarem
-   automàticament tota la descàrrega històrica com a prova inicial.
-
-Els noms i posició dels menús poden variar segons la versió de Codex Web. Si el
-servei no ofereix la vinculació segura descrita, cal aturar la configuració; no
-substituir-la per una clau en fitxers, Git, setup, PowerShell o ordres compartides.
-
-## Persistència i operació
-
-La CLI crea dades amb umask 077; els originals s'escriuen atòmicament amb permisos
-600, i la DB SQLite també té permisos 600. Això no és xifratge. El volum ha de ser
-privat i xifrat pel sistema on es conservin dades reals. Còpies de seguretat també
-privades. El contenidor Codex no és emmagatzematge permanent.
-
-No s'ha configurat execució periòdica ni infraestructura. Proposta per a fase 5:
-servei privat amb volum xifrat persistent o PostgreSQL privat + emmagatzematge
-privat d'originals, gestor de secrets, un únic sincronitzador programat, còpies de
-seguretat i autenticació del dashboard. Cal triar proveïdor i costos abans d'implementar.
+Instal·lació i actualització descarreguen programari de Python/PyPI; no envien dades
+personals. Scripts no signats, venv separat per versió i sense modificació global de
+política PowerShell. No hi ha telemetria, deploy automàtic, infraestructura de pagament
+ni exe independent encara. La clau està protegida pel compte Windows; no queda inclosa
+als backups de l'app.

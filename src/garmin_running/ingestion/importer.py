@@ -59,6 +59,9 @@ class Importer:
         report = ImportReport()
         paths = sorted(p for p in path.rglob("*") if p.is_file()) if path.is_dir() else [path]
         for file in paths:
+            if path.is_dir():
+                # El límit protegeix cada contenidor, no tot un historial de milers de FIT.
+                self.used = self.members = 0
             if file.is_symlink():
                 report.ignored += 1
                 continue

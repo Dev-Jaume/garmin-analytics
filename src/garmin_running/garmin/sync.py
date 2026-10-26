@@ -17,7 +17,14 @@ from sqlalchemy import insert, select, update
 from garmin_running.domain import ActivityData, DataError
 from garmin_running.fit.parser import MAX_FIT_BYTES, parse_fit
 from garmin_running.garmin.client import GarminClient, GarminError
-from garmin_running.storage.repository import Repository, aliases, canonical, digest, sync_runs
+from garmin_running.storage.repository import (
+    Repository,
+    activities,
+    aliases,
+    canonical,
+    digest,
+    sync_runs,
+)
 
 
 def downloaded_fit(data: bytes) -> bytes:
@@ -41,9 +48,18 @@ def ids_of(items: list[dict]) -> list[str]:
     return [GarminClient._id(item.get("activityId", "")) for item in items]
 
 
+class SyncCancelled(GarminError):
+    """Interrupció explícita, recuperable al proper inici."""
+
+
 class Synchronizer:
     def __init__(self, client: GarminClient, repo: Repository):
         self.client, self.repo = client, repo
+        self._cancelled = lambda: False
+
+    def _check_cancelled(self):
+        if self._cancelled():
+            raise SyncCancelled("Sincronització interrompuda per l'usuari")
 
     def _original(self, sha: str) -> tuple[bytes, str]:
         if len(sha) != 64 or any(c not in "0123456789abcdef" for c in sha):
@@ -86,9 +102,11 @@ class Synchronizer:
         summary_hash = digest(canonical(item))
         path = self._stage_path(run_id, activity_id, summary_hash)
         if not path.exists():
+            self._check_cancelled()
             detail = self.client.detail(activity_id)
             if "activityId" in detail and str(detail["activityId"]) != activity_id:
                 raise DataError("El detall no correspon a l'activitat sol·licitada")
+            self._check_cancelled()
             download = self.client.download(activity_id)
             download_sha, _ = self.repo.archive(download)
             raw = downloaded_fit(download)
@@ -212,6 +230,7 @@ class Synchronizer:
         complete = False
         audit["reconciliation"] = {"status": "in_progress", "pages": page_log}
         for _ in range(max_pages):
+            self._check_cancelled()
             items = self.client.search(offset, page_size)
             ids = ids_of(items)
             fingerprint = digest(canonical(items))
@@ -265,10 +284,16 @@ class Synchronizer:
         page_size: int = 50,
         max_pages: int = 10000,
         refresh: bool = False,
+        progress=None,
+        cancelled=None,
     ) -> str:
         if not 1 <= page_size <= 100 or max_pages < 1:
             raise ValueError("Límits de sincronització invàlids")
+        self._cancelled = cancelled or (lambda: False)
+        notify = progress or (lambda _state: None)
         run_id, audit, pages = self._start(resume, page_size)
+        new_count, updated_count = 0, 0
+        notify({"run_id": run_id, "pages": pages, "new": 0, "updated": 0})
         with self.repo.engine.connect() as conn:
             past_runs = (
                 conn.execute(
@@ -280,6 +305,8 @@ class Synchronizer:
                 .all()
             )
             known = set(conn.execute(select(aliases.c.alias)).scalars())
+            initial_entities = set(conn.execute(select(activities.c.id)).scalars())
+        new_entities, updated_entities = set(), set()
         previous_hashes = {}
         for past in sorted(past_runs, key=lambda a: a["started_at"]):
             previous_hashes.update(past.get("summary_hashes", {}))
@@ -289,6 +316,7 @@ class Synchronizer:
         try:
             for _ in range(max_pages):
                 phase = "search"
+                self._check_cancelled()
                 items = self.client.search(offset, page_size)
                 ids = ids_of(items)
                 fingerprint = digest(canonical(items))
@@ -340,6 +368,7 @@ class Synchronizer:
                         or previous_hashes.get(activity_id) != summary_hash
                     ):
                         prepared.append((activity_id, self._prepare(run_id, item)))
+                self._check_cancelled()
                 # Només ara, amb totes les peticions tancades i FIT durables, obrir SQL.
                 next_audit = deepcopy(audit)
                 next_audit["pending_page"] = None
@@ -360,9 +389,14 @@ class Synchronizer:
                 )
                 next_offset = offset + len(items)
                 phase = "persist"
+                touched = set()
                 with self.repo.engine.begin() as conn:
                     for activity_id, (data, sha, path) in prepared:
-                        self.repo.save_archived(conn, data, sha, path, "personal_api", activity_id)
+                        touched.add(
+                            self.repo.save_archived(
+                                conn, data, sha, path, "personal_api", activity_id
+                            )
+                        )
                     result = conn.execute(
                         update(sync_runs)
                         .where(
@@ -380,6 +414,12 @@ class Synchronizer:
                     if result.rowcount != 1:
                         raise GarminError("Checkpoint modificat per una altra execució")
                 audit, pages, offset = next_audit, pages + 1, next_offset
+                new_entities.update(touched - initial_entities)
+                updated_entities.update(touched & initial_entities)
+                new_count, updated_count = len(new_entities), len(updated_entities)
+                notify(
+                    {"run_id": run_id, "pages": pages, "new": new_count, "updated": updated_count}
+                )
                 known.update(f"garmin:{key}" for key in unique)
                 previous_hashes.update(audit["summary_hashes"])
                 if not items:
@@ -417,7 +457,9 @@ class Synchronizer:
                     update(sync_runs)
                     .where(sync_runs.c.id == run_id, sync_runs.c.pages == pages)
                     .values(
-                        status="interrupted" if isinstance(exc, KeyboardInterrupt) else "failed",
+                        status="interrupted"
+                        if isinstance(exc, (KeyboardInterrupt, SyncCancelled))
+                        else "failed",
                         audit=audit,
                     )
                 )

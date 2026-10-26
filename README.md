@@ -1,119 +1,77 @@
-# Garmin Running Analytics
+# Garmin Running Analytics — Windows local
 
-Plataforma personal en català. **Fase 1 funcional en mode offline**, amb importació
-FIT/exportacions, SQLite, auditoria i client oficial provat amb mocks. La connexió
-real continua bloquejada fins a l'aprovació del mecanisme de secrets i la verificació
-del contracte de l'API. No s'ha accedit al compte Garmin ni s'han utilitzat dades reals.
+Aplicació personal Python + Streamlit en català, executable des d'un accés directe.
+**0 € d'infraestructura recurrent**, sense hosting, servidors de pagament ni DB externa.
+Reutilitza el motor d'importació i sincronització de la PR #1.
 
-## Arquitectura implementada
+## Instal·lació a Windows
 
-- `src/garmin_running/domain.py`: activitat normalitzada, instants UTC i camps opcionals.
-- `fit/parser.py`: fitdecode amb CRC i errors estrictes; sessions, voltes, registres,
-  esdeveniments, dispositiu, valors originals i unitats. El FIT es manté byte a byte.
-- `ingestion/importer.py`: FIT individuals, directoris, ZIP i ZIP imbricats; límits
-  de mida i profunditat, errors per entrada i adaptador conservador de resums JSON.
-- `storage/repository.py`: SQLAlchemy, activitats, àlies, versions, execucions de
-  sincronització/importació, esquema versionat i arxiu immutable per SHA-256.
-- `garmin/client.py`: només el domini Personal API, token en memòria, renovació,
-  reintents limitats, Retry-After, limitació de freqüència i mida, sense redireccions.
-- `garmin/sync.py`: paginació, transacció per pàgina, checkpoints, represa des de zero amb staging,
-  signatures de resum per evitar descàrregues repetides i refresc complet opcional.
-- `cli.py`: `init`, `import`, `coverage` i `sync` amb dues barreres explícites.
-- `tests/`: FIT binaris sintètics amb CRC independent i API HTTP simulada.
-- `.github/workflows/tests.yml`: proves i Ruff sense secrets.
+1. Descarrega el [ZIP de la branca de la PR](https://github.com/Dev-Jaume/garmin-analytics/archive/refs/heads/codex/phase1-ingestion.zip).
+2. Descomprimeix-lo i obre `windows/Instal·lar.cmd` amb doble clic.
+3. El programa prepara Python 3.12/entorn propi i crea **Garmin Running Analytics** a l'escriptori.
+4. Obre l'accés directe. El navegador s'obre a `http://127.0.0.1:8501`.
+5. A **Configuració**, importa FIT/ZIP/directori local i consulta l'historial offline.
 
-No hi ha dashboard, estimacions fisiològiques ni VDOT en aquesta fase. Prioritzem
-la importació abans d'afegir dependències de visualització o algoritmes fisiològics.
+[Instruccions completes d'instal·lació, ús i actualització](docs/WINDOWS.md).
+La instal·lació inicial necessita Internet per descarregar Python/dependències; després
+la consulta i importació funcionen offline. No és encara un .exe independent.
 
-## Execució
+## Dades i seguretat
 
-L'entorn d'aquesta tasca ja té les dependències instal·lades a `work/venv` i les
-proves executades. Les ordres següents documenten la reproducció; no cal copiar
-codi ni crear fitxers manualment.
+Dades a `%LOCALAPPDATA%\GarminRunningAnalytics\`: SQLite, originals, imports, staging,
+backups i logs. Programes a `%LOCALAPPDATA%\Programs\GarminRunningAnalytics\`, separats de les dades.
+L'actualització crea un entorn nou i preserva l'historial. Còpies locals des de la GUI.
+
+Clau només a Windows Credential Manager; no a fitxers, SQLite, logs ni Git.
+No es llegeix ni copia cap clau de Codex Cloud. Streamlit només escolta a loopback,
+amb CORS/XSRF i telemetria desactivada. No es publiquen dades ni gràfics a serveis externs.
+
+## Sincronització
+
+Worker en segon pla; històric local disponible durant xarxa, lock entre processos,
+progrés i botons de sincronització/interrupció. Una única sincronització automàtica
+per inici de procés, sense repeticions pels reruns. Requereix consentiment explícit.
+La cerca oficial comprova connexió i reconcilia tot el catàleg; no assumeix un endpoint
+que retorni només novetats. Descàrregues, staging i parsing fora de SQL; commit de pàgina
+amb checkpoint, represa des de zero i reutilització de staging íntegre.
+
+**La connexió Garmin real continua bloquejada** fins a completar la verificació del
+contracte oficial. La versió actual és funcional offline i té el mecanisme de worker
+provat amb mocks; no s'ha validat ni executat la sincronització contra un compte real.
+Desar una clau o marcar consentiment no salta el bloqueig del contracte.
+
+## Dashboard
+
+- Resum de volum setmanal/mensual, hores, ritme ponderat i activitats recents.
+- Historial filtrable i paginat; detall de FC, ritme, cadència, altitud, voltes i pauses.
+- Friel clàssic: LTHR manual validat i versionat, zones, temps per zona i indicadors òptics.
+- VDOT Daniels–Gilbert de rendiments confirmats i recents, equivalents i històric.
+- E/M/T/I/R com a **estimacions orientatives del model**, activades expressament;
+  sense afirmar coincidència amb les taules oficials. [Mètodes i limitacions](docs/METHODS.md).
+- Qualitat i auditoria: cobertura no verificada, flags i discrepàncies de paginació.
+
+No hi ha dades fictícies preinstal·lades. Sense fonts validades, els indicadors personals
+es mostren com a no determinats. Índex lleuger de resums: no es carreguen tots els
+registres FIT a l'inici; detall i càlculs només de l'activitat seleccionada, amb cache.
+
+## Desenvolupament amb Codex i GitHub
 
 ```bash
 python -m venv .venv
-.venv/bin/python -m pip install -r requirements-dev.lock
+.venv/bin/python -m pip install -r requirements-desktop.lock
 .venv/bin/python -m pip install --no-deps -e .
-.venv/bin/gra init
-.venv/bin/gra import /ruta/privada/exportacio-garmin.zip
-.venv/bin/gra coverage
 .venv/bin/python -m pytest -q
 .venv/bin/ruff check .
 .venv/bin/ruff format --check .
 ```
 
-La CLI crea `private/analytics.sqlite3` i `private/originals/`, ignorats per Git.
-Per dades reals, cal un volum privat amb persistència i còpia de seguretat externa.
-`--data-dir /volum/privat` i `--database-url` són opcions globals, abans de l'ordre.
-`.env.example` és documentació: l'aplicació no carrega fitxers `.env` automàticament.
+A Windows, Python de l'entorn és `.venv\Scripts\python.exe`. L'usuari final no necessita
+executar aquestes ordres: usa l'instal·lador. La CI inclou Windows i Linux, AppTest,
+credencials sintètiques i instal·lació Windows sense iniciar navegador. GitHub conserva
+només codi/fixtures. Cap dada real s'ha de copiar a Codex ni publicar a la PR.
 
-## Importació i deduplicació
-
-Podeu proporcionar directament l'exportació completa Garmin en ZIP, un directori
-ja descomprimit o un FIT. No s'extreuen rutes del ZIP al sistema de fitxers. Els
-ZIP imbricats s'inspeccionen fins al límit configurat; els altres formats es compten
-com a ignorats. El recompte `imported` indica entrades acceptades, inclosos reimports
-idempotents; el nombre d'activitats úniques apareix a `coverage`.
-
-1. `activityId` verificat, quan està disponible.
-2. SHA-256 per a còpies exactes.
-3. Dispositiu (serial), inici UTC i esport per a versions FIT sense activityId.
-4. Sense identificació suficient es conserva una activitat separada; coincidències
-   d'inici/esport queden marcades com a possibles duplicats. No s'infereix l'ID del nom.
-
-Per vincular un FIT individual amb un ID conegut: `gra import fitxer.fit --activity-id 123`.
-Un conflicte entre identitats ja existents es rebutja perquè requereix reconciliació.
-No es fusionen automàticament activitats amb distàncies o hores només semblants.
-Les versions preserven el FIT i la representació derivada; reimportar una versió
-ja existent no reverteix la versió actual.
-
-Els FIT multisessió/multiesport es rebutgen explícitament i se'n conserva l'original:
-la descomposició sense perdre transicions requereix un adaptador posterior.
-Els resums JSON compatibles tenen l'estructura `[{"summarizedActivitiesExport": [...]}]`.
-Es conserven sense assumir les unitats de distància/durada. No substitueixen un FIT.
-Altres variants JSON, CSV, TCX i GPX encara no estan implementades.
-
-## Cobertura històrica
-
-`coverage` informa dates mínima/màxima, activitats sense data o registres, possibles
-duplicats, intervals de 30 dies o més (configurables a la capa de repositori), pàgines
-consultades, estat de cada sincronització i errors d'importació persistits.
-Un interval sense activitats és un indici per revisar, no una prova de dades perdudes.
-L'estat sempre és **«Cobertura no verificada»** fins a un contrast extern documentat.
-
-La sincronització torna a consultar el catàleg des de l'offset zero i només torna a
-baixar FIT quan canvia el resum. `--refresh` força relectura de detalls i FIT: necessari
-si Garmin modifica una activitat sense canviar el resum. No propaga eliminacions
-remotes. La represa torna a l'offset zero i reutilitza staging íntegre; no ofereix garanties de snapshot amb offsets
-mutables. Les interrupcions poden deixar originals orfes, però no pàgines parcials a DB.
-
-## Documentació i següent pas
-
-- [Seguretat i configuració de Codex Web](docs/SECURITY.md).
-- [Fonts oficials i contracte pendent](docs/API_CONTRACT.md).
-- [Disseny, decisions i límits](docs/ARCHITECTURE.md).
-- [Informe de validació](docs/VALIDATION.md).
-
-Següent pas: revisar el mecanisme de secrets i completar el contrast del contracte
-OpenAPI abans de qualsevol petició autenticada. L'alternativa offline ja es pot
-utilitzar sense API Key. Les fases 2–4 s'implementaran després de validar la ingesta.
-
-## Tancament de fase 1
-
-La segona revisió ha executat 84 proves, Ruff, Bandit i pip-audit. Les FAQ oficials
-confirmen que no hi ha refresh tokens. Swagger continua parcialment verificat a
-causa del 403 del proxy; no s'ha fet cap petició autenticada. La persistència fora de
-Codex, el procediment de backup/restauració i la futura migració estan documentats a
-`docs/ARCHITECTURE.md`. La implementació i les proves de recuperació es revisen a la PR #1, sense dades reals.
-
-Amb autorització explícita, s'ha inicialitzat main únicament amb el commit buit
-`86ef58c` i s'ha publicat la implementació a `codex/phase1-ingestion`. La
-[PR #1](https://github.com/Dev-Jaume/garmin-analytics/pull/1) està oberta en esborrany;
-no s'ha fusionat ni desplegat res. Els documents es poden consultar a la branca de la PR.
-
-La sincronització prepara originals i manifests privats fora de SQL, compromet cada
-pàgina amb el seu checkpoint i fa una segona lectura del catàleg. Discrepàncies es
-marquen com `unstable`; no impliquen eliminacions remotes ni cobertura completa.
-El token s'interpreta com JWT en text amb exp, contrastat amb el client Python oficial.
-Els DTO complets encara requereixen l'OAS; no s'ha habilitat accés autenticat.
+- [Arquitectura local](docs/ARCHITECTURE.md)
+- [Contracte Garmin i aspectes pendents](docs/API_CONTRACT.md)
+- [Seguretat](docs/SECURITY.md)
+- [Informe de versió](docs/PHASE1_REPORT.md)
+- [Validació](docs/VALIDATION.md)

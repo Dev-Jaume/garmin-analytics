@@ -1,81 +1,83 @@
-# Validació de la segona revisió de fase 1 — 26 d'octubre de 2026
+# Validació Windows local 0.2 — 26 d'octubre de 2026
 
-Entorn Python 3.12.14; dependències del projecte fixades a `requirements-dev.lock`.
-Totes les dades d'entrada són sintètiques. La fixture autouse prohibeix connexions de
-xarxa reals; les execucions s'han fet amb GARMIN_API_KEY retirada del procés de tests.
+## Resultats locals verificats
 
-| Ordre/comprovació | Resultat local |
+Python 3.12.14. Dependències universals a requirements-desktop.lock, inclosos marcadors
+Windows/Linux. Les proves retiren GARMIN_API_KEY i prohibeixen xarxa real amb fixture
+autouse; només dades, claus i transports sintètics.
+
+| Comprovació executada | Resultat |
 | --- | --- |
-| `env -u GARMIN_API_KEY work/venv/bin/python -m pytest -q` | **84 passed in 2.23s**, 0 fallades |
-| `ruff check src tests scripts` | Correcte |
-| `ruff format --check src tests scripts` | Correcte |
-| `python scripts/smoke_offline.py` | Dues importacions, una activitat sintètica única |
-| `pip check` | Cap dependència trencada |
-| `pip-audit -r requirements-dev.lock --no-deps --disable-pip --vulnerability-service pypi` | 15 dependències, cap vulnerabilitat coneguda |
-| `bandit -r src` | 3 avisos LOW revisats, 0 MEDIUM/HIGH |
-| Revisió heurística/manual dels candidats a Git | Sense secrets reals, FIT ni DB detectats |
+| pytest complet | **114 passed, 1 skipped in 35.31s** |
+| Ruff check i format | Correctes |
+| pip check | Cap dependència trencada |
+| AppTest | Totes les pàgines, historial buit/importat i estimacions opcionals, sense Internet |
+| Servidor Streamlit real | Health HTTP 200; listener comprovat només 127.0.0.1:18765 |
+| pip-audit dels pins del lock, sense filtrar per plataforma | **58 versions auditades, 0 vulnerabilitats conegudes** |
+| Bandit | **5 LOW**, 0 MEDIUM/HIGH, revisats sense supressions |
+| Revisió de candidats a Git | Sense credencials reals, FIT, DB o dades personals detectades |
 
-## Contracte i autenticació
+L'únic skip local és el round-trip natiu de Windows Credential Manager. A Windows
+la prova crea i elimina una entrada **sintètica en un servei únic de tests**, mai al
+servei real de l'app. L'estat Windows real es comprova als checks de GitHub, no s'infereix
+d'aquesta execució Linux. No s'ha llegit cap credencial ni fet una petició a Garmin real.
 
-JWT en text amb claim exp, capçaleres ApiKey/Bearer/Accept, absència de refresh-token,
-renovació en caducar i després de 401, JSON antic rebutjat, JWT malformats/caducats
-rebutjats (incloent exp booleà, nul, text o infinit), IDs ASCII positius, redireccions
-rebutjades, límits de mida, paginació i errors/reintents HTTP. Fixtures contrastades
-amb el client Python oficial Garmin, revisió fixada a `API_CONTRACT.md`.
+## Abast de les proves
 
-Això valida el nostre comportament davant el perfil simulat. No s'ha fet una prova
-contra Garmin ni obtingut l'OAS complet: DTO, garanties de paginació i cobertura
-històrica real continuen pendents.
+- Tota la suite anterior: FIT binaris amb CRC independent, nuls i irregularitats,
+  importacions/ZIP, deduplicació/versionat, token JWT/capçaleres, backoff, idempotència,
+  fallades de xarxa/disc/SQL, staging, interrupció/represa i auditoria de catàleg mutable.
+- Inici offline i sense credencials; bloqueig per contracte abans de consultar clau.
+- Consentiment, auto-sync única encara que hi hagi reruns i reintent manual.
+- Worker sense bloquejar lectures de la GUI; lock entre controladors/processos i
+  alliberament des del fil de treball. Imports i backups comparteixen el mateix lock.
+- Autenticació rebutjada i connexió interrompuda conserven l'historial local.
+- Cancel·lació i revocació de consentiment, represa posterior sense duplicar descàrregues.
+- Comptadors: un FIT prèviament importat que s'enriqueix per API és actualitzat, no nou.
+- Windows Credential Manager explícit amb backend fictici i errors sense secret al missatge.
+- Rutes Windows amb espais; preferències corruptes o consentiment de tipus incorrecte
+  desactiven la xarxa; settings no admet camp API Key.
+- Migració 1→2 preserva activitat, índex i originals; còpia abans de migrar.
+- Backup/restauració local, sense fitxers de lock ni credencials.
+- 2.000 activitats: consultes paginades de resums sense seleccionar samples; imports
+  de directori amb pressupost per fitxer, no per tot l'historial.
+- Valors absents no es converteixen en mesures personals zero; activitats sense data
+  es poden consultar a l'historial amb filtre explícit.
+- Zones Friel enteres contigües, durades amb buits/pauses i manca d'extrapolació final.
+- VDOT de referència, inversió, recència sense look-ahead, unitats, bandes estimades
+  E/M/T/I/R i filtres de durada/distància per intervals.
+- AppTest de Resum, Historial, Detall, Friel, VDOT amb ritmes opcionals, Qualitat i
+  Configuració, amb i sense dades sintètiques. No hi ha demo preinstal·lada a l'app.
 
-## Ingesta i persistència
+## Seguretat de dependències i codi
 
-FIT binaris amb CRC independent, camps/units/nuls, irregularitats i duplicats,
-ZIP imbricats i rutes sense extracció, límits i errors d'importació, identitat/versionat,
-enriquiment API preservat i resums conservadors. SQLite real: rollback, persistència
-entre connexions, DB incompatibles intactes i backup/restauració de dues versions
-amb verificació d'originals i integritat. No s'ha provat PostgreSQL ni infraestructura.
+El rang inicial filelock<4 va seleccionar 3.32.7 i pip-audit va detectar
+CVE-2026-112940, CVE-2026-112913 i CVE-2026-112907. Corregit a rang >=4.2.1,<5,
+lock amb **4.2.4**; s'ha repetit l'auditoria. Les 58 versions inclouen les dependències
+amb marcadors Windows, auditades només com a metadades, sense instal·lar-les a Linux.
+Cap dada personal ni credencial s'envia a PyPI per aquesta comprovació.
 
-## Fallades i auditoria de sincronització
+Bandit 1.9.4: B105 és TOKEN_PATH (ruta pública), dos B311 són jitter no criptogràfic,
+B404/B603 són import/Popen del launcher amb llista d'arguments fixa, executable actual,
+script instal·lat i port validat, sense shell. No s'han ocultat avisos; Bandit retorna
+1 pels cinc LOW. No s'ha afirmat absència absoluta de risc.
 
-- Instrumentació SQLAlchemy comprova que no hi ha cap transacció SQL durant cap
-  petició HTTP: token, cerca, detall, descàrrega o reconciliació.
-- Fallada de xarxa a la segona activitat després de preparar la primera: cap activitat
-  compromesa de la pàgina, checkpoint intacte i represa reutilitzant el primer staging.
-- Error de disc després de descarregar però abans d'arxivar: cap referència SQL; la
-  represa torna a descarregar perquè no hi ha manifest complet.
-- Error SQL després del primer insert d'una pàgina: rollback conjunt i posterior
-  represa amb els dos staging preparats, sense repetir descàrregues.
-- KeyboardInterrupt a mitja pàgina: estat interrupted i represa idempotent.
-- Fallada entre pàgines: pàgina ja compromesa conservada, represa des de zero i sense
-  duplicació; fallada de xarxa en reconciliació també recuperable, preservant les lectures
-  anteriors a reconciliation_history i la pàgina pendent a resume_log.
-- Manifest manipulat o original absent: represa bloquejada abans d'escriure SQL.
-- Duplicats dins de pàgina, conflictius i entre pàgines; pàgina repetida i límit de pàgines.
-- Inserció al cap, supressió durant la passada, resum canviat entre passades,
-  verificació incompleta i IDs del catàleg anterior que no reapareixen: inestabilitat
-  registrada sense esborrar activitats locals ni afirmar exhaustivitat.
-- IDs numèricament no contigus no generen falses omissions.
+Escaneig heurístic/manual de tots els fitxers versionats i nous: claus privades, tokens,
+JWT literals, credencials a URL, extensions i màgia FIT/SQLite. Logs, cachés, dades de
+proves i informes d'eines romanen fora de Git. Git ignora també originals/staging/
+backups/settings/estat encara que algú triï accidentalment una ruta dins del repositori.
 
-No són proves de tall físic d'alimentació, SIGKILL real, accés concurrent de múltiples
-sincronitzadors, corrupció arbitrària de disc ni grans volums en producció.
+Els escaneigs no certifiquen Windows, el SO, hardware, dependències de build no fixades,
+la seguretat física del PC ni fonts de dades reals. No s'ha fet cap test amb compte Garmin.
 
-## Seguretat i límits de l'auditoria
+## GitHub Actions
 
-Bandit 1.9.4 conserva els tres avisos, sense supressions: B105 assenyala TOKEN_PATH,
-una ruta pública; els dos B311 són jitter de backoff, sense cap funció criptogràfica.
-El procés Bandit retorna 1 pels avisos; no s'ha presentat com una execució sense avisos.
+Matriu Ubuntu + Windows amb Python 3.12, instal·lació des del lock, pytest, Ruff i
+diagnòstic del launcher. A Windows: test natiu de Vault i execució de Install.ps1 amb
+Windows PowerShell, sense navegador ni accessos directes al runner. El codi del
+workflow no injecta secrets. Els checks de la PR són la font de l'estat remot final.
 
-pip-audit 2.10.1 consulta només metadades públiques de les 15 dependències del lock a
-PyPI. No envia salut, ubicacions ni credencials. No cobreix SO, Python, futura
-infraestructura ni dependències de build no fixades.
-
-Revisió del conjunt de fitxers versionats + nous: patrons de claus privades, tokens
-de servei, JWT literals, credencials a URL, capçaleres binàries FIT/SQLite i extensions
-privades. L'únic FIT del smoke coincideix amb el generador sintètic. Regles Git
-verificades per a .env, FIT, exportacions, DB, claus i work/. Els resultats/cachés de les
-eines i staging sintètic queden a work/, fora de Git. És una revisió heurística/manual,
-no una demostració formal d'absència de secrets. No s'han llegit valors de credencials.
-
-GitHub Actions a la PR és una comprovació separada: el workflow executa pytest i Ruff;
-Bandit i pip-audit s'han executat localment en aquesta revisió. L'estat remot actual
-es consulta als checks de la PR, no s'infereix dels resultats locals.
+Encara no validat: winget sobre Windows personal sense Python, experiència visual
+real al navegador d'aquest PC, interrupció per tall elèctric/SIGKILL físic, grans
+historials reals, regressió oficial de ritmes V.O2 i contracte OAS complet. PyInstaller
+no s'ha construït. El cost d'infraestructura de l'app és zero perquè tot s'executa al PC.

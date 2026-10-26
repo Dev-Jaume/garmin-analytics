@@ -1,200 +1,122 @@
-# Decisions i límits de fase 1
+# Arquitectura definitiva: Windows local, versió 0.2
 
-## Dades
+Decisió de l'usuari: 0 € d'infraestructura recurrent, sense cloud, servidors de pagament
+ni bases de dades externes. Les alternatives cloud de revisions anteriors queden
+substituïdes; no s'ha desplegat cap infraestructura ni es proposa contractar-ne cap.
 
-Instants FIT `date_time` i camps explícitament GMT → UTC. Camps locals conserven
-la representació original sense assignar una zona horària inventada. La zona
-IANA de l'activitat és `null` si no està disponible. No es deriva de coordenades.
+## Distribució i inici
 
-Mètriques FIT escalades: metres, segons, m/s, BPM. Ritme mitjà = temps de timer /
-distància × 1000; s'indica la base temporal i no s'atribueix a temps en moviment.
-El temps en moviment es deixa absent si el FIT no el proporciona. Velocitat màxima
-és una lectura sense validar, mai un ritme de rendiment fiable. Cadència es conserva
-en unitat original; no es multiplica per dos sense validar semàntica del dispositiu.
+`windows/Install.ps1` i els accessos `.cmd` instal·len Python 3.12 de 64 bits i un venv
+propi per versió. La instal·lació crea un accés directe, no requereix copiar codi ni
+executar PowerShell manualment. `Actualitzar.cmd` reutilitza el mateix procediment:
+venv nou, comprovació de diagnòstic i canvi d'accés directe només després d'èxit.
+Les dades viuen fora del directori de programa i no s'esborren en actualitzar.
 
-Els registres conserven ordre, duplicats, absències, mostreig irregular i esdeveniments
-de timer. No es calcula temps per zona en aquesta fase ni s'interpola a través de
-pauses/buits. FC màxima observada és una mesura separada de qualsevol llindar futur.
+`desktop.launcher` imposa `127.0.0.1`, headless, CORS/XSRF i usage stats desactivades;
+obre el navegador quan el servidor local està preparat. Un lock d'app reutilitza la
+sessió ja iniciada; una comprovació de port evita obrir accidentalment un altre servidor.
+Cap listen a 0.0.0.0 ni hosting extern. El navegador no envia activitats a Plotly Cloud.
+No hi ha actualització automàtica de codi a l'inici: la consulta segueix funcionant offline.
 
-Tots els missatges FIT inclouen camps, unitats i raw_value del parser. El FIT immutable
-és l'autoritat per recuperar bytes originals; fitdecode pot aplicar escala als raw_value
-d'alguns components expandits. No s'afirma que aquests camps siguin un bolcat binari.
+PyInstaller/.exe independent queda per una etapa posterior després de validar aquest
+paquet; no se'n distribueix cap binari ni s'afirma compatibilitat provada.
 
-## Persistència
+## Capes reutilitzades i afegides
 
-SQLAlchemy Core desacobla SQL i ingesta. SQLite s'ha provat realment. L'URL admet
-PostgreSQL mitjançant l'extra `postgres`, però la migració, el driver i les proves de
-producció PostgreSQL encara estan pendents. No s'afirma compatibilitat validada.
+- `fit`, `ingestion`, `garmin`, `storage`: motor existent, amb originals immutables,
+  versionat, paginació auditada, staging i recuperació.
+- `desktop/local.py`: rutes, preferències atòmiques sense secrets i logging rotatiu.
+- `desktop/credentials.py`: WinVaultKeyring explícit; cap fallback a text pla o entorn.
+- `desktop/controller.py`: worker, consentiment, lock d'escriptor, progrés i cancel·lació.
+- `desktop/app.py` i `views.py`: Streamlit en català, consultes i gràfics locals.
+- `physiology/friel.py`, `vdot/vdot_engine.py`: càlculs versionats amb fonts i límits
+  a METHODS.md. No s'estima cap indicador personal de dades no confirmades.
 
-Activitats, àlies, versions (hash de FIT + payload), registres d'importació i execucions
-de sincronització tenen taules separades. Registres/voltes/missatges es guarden en JSON
-per activitat: simplifica la traçabilitat inicial, però no és una taula de sèries temporals
-indexada per consultes massives. Abans del dashboard cal mesurar memòria i rendiment
-amb historial real i valorar taules/Parquet privats per registres.
+## Persistència local i rendiment
 
-Esquema versionat 1; versions desconegudes es rebutgen. No hi ha migrador automàtic.
-Un sol sincronitzador escriptor suportat. Les peticions HTTP, parsing FIT i staging
-es fan fora de transaccions SQL; el commit d'una pàgina inclou activitats i checkpoint.
-Els originals orfes després d'una fallada es conserven per a auditoria.
+`%LOCALAPPDATA%\GarminRunningAnalytics\`: analytics.sqlite3, originals/, imports/,
+staging/, backups/, logs/, settings.json i sync-status.json. Rutes configurables a
+launcher `--data-dir` o GRA_DATA_DIR; usar disc local i evitar carpetes sincronitzades
+amb núvol. No executar SQLite sobre un filesystem remot.
 
-## Límits operatius explícits
+Esquema 2: s'afegeix `activity_index` amb data, esport, mètriques, flags i dispositiu,
+sense samples/missatges. Actualitzat dins del mateix commit que l'activitat. La
+migració 1→2 crea una còpia SQLite abans de canviar res i indexa una activitat cada
+vegada. No es modifiquen originals ni activitats existents. Esquemes aliens o futurs
+es rebutgen. Un rollback de programa antic requereix restaurar el backup d'esquema 1.
 
-Importació: 512 MiB acumulats per execució, 128 MiB per entrada ZIP/FIT, 10.000 entrades,
-4 nivells ZIP, configurables a `Importer`. Per exportacions més grans, importar parts
-per separat o ajustar límits en una futura opció CLI després d'avaluar memòria.
-La suma inclou contenidors comprimits i entrades descomprimides. Mai extreure rutes ZIP.
+Inici: només índex lleuger, no FIT originals ni tots els registres de la DB. Historial
+filtrat/paginat amb SQL. Resum setmanal/mensual amb mètriques lleugeres i cache invalidada
+quan acaba un job. Detall sota demanda, cache per ID i versió de l'activitat, dos detalls
+com a màxim. Les activitats no modificades no tornen a ser parsejades per sincronitzar.
+Un test usa 2.000 activitats i comprova que les consultes de resums no seleccionen el
+payload de samples. No és encara un benchmark de RAM/latència en un PC amb historial real.
 
-Client: timeout 30 s per operació HTTP, 3 reintents addicionals, interval mínim 1 s
-configurable, resposta JSON màxima 16 MiB i descàrrega 128 MiB. Són límits locals
-prudents, **no quotes oficials de Garmin**. Retry-After superior a 60 s ajorna l'operació
-perquè es pugui reprendre més tard. No hi ha timeout total d'una execució ni scheduler.
+Importació d'un directori: límit de seguretat per cada FIT/contenidor, no per tot el
+volum històric. ZIP continua limitat a 512 MiB acumulats, 128 MiB per entrada, quatre
+nivells i 10.000 entrades per contenidor; exports més grans: descomprimir localment i
+importar directori. Les rutes ZIP no s'extreuen al filesystem. Multisessió FIT segueix
+rebutjada explícitament en comptes de fusionar esports o perdre transicions.
 
-El catàleg es torna a consultar completament; només les descàrregues són incrementals.
-Això evita tallar la cerca només perquè apareix una activitat ja coneguda. Modificacions
-no reflectides al resum requereixen `--refresh`. Ni dues passades estables ni pàgina buida
-proven exhaustivitat. No es filtren esports a origen: es conserva l'historial recuperat;
-`ActivityData.is_running` permet identificar running per a fases posteriors.
+## Consentiment i sincronització en obrir
 
-No hi ha encara: control de qualitat fisiològica de FC, LTHR, zones Friel, VDOT, ritmes,
-dashboard Streamlit, autenticació de dashboard ni automatització permanent. Són les
-fases següents, no valors ficticis ni estimacions incompletes presentades com a vàlides.
+L'app consulta i renderitza l'històric abans de programar xarxa. Un controlador amb
+cache per procés marca un únic intent automàtic; els reruns/fragments no n'inicien
+més. Tancar només la pestanya manté el procés: no és un nou inici d'app. El botó manual
+permet reintentar. `threading.Lock` protegeix estat i FileLock amb context compartit
+entre fils impedeix escriptors simultanis, també entre processos. Imports i backups
+usen el mateix lock. La CLI avançada no s'ha d'executar com a segon escriptor alhora.
 
-## Conservació de l'historial fora de Codex Cloud
+Autorització inicial explícita + credencial configurada + contracte validat. La
+constant OFFICIAL_CONTRACT_VALIDATED continua False perquè manca l'OAS complet;
+no és editable des d'un checkbox. També bloqueja la CLI abans de llegir credencials.
+No s'han fet peticions reals. Les proves injecten un transport simulat i valors ficticis.
 
-Per a la fase 1, el magatzem canònic serà SQLite + `originals/` en un volum privat
-persistent extern a Codex (ordinador/servidor/NAS privat amb disc xifrat). El codi es
-versiona a GitHub; DB, FIT, exportacions i backups mai. No s'ha seleccionat ni
-aprovisionat cap proveïdor, ni s'ha transferit cap dada real en aquesta revisió.
+Quan s'habiliti legítimament, la cerca oficial servirà de comprovació de connectivitat.
+Worker daemon separat, sense ordres Streamlit dins del fil. La GUI sondeja estat amb
+fragment cada dos segons i refresca quan canvia la revisió. Mostra connexió, pàgines,
+noves/actualitzades, errors i últim èxit UTC. No coneix el total abans de paginar i no
+mostra un percentatge d'avanç inventat. En fallar hi ha accés permanent a la DB local.
 
-Procediment de conservació, abans de qualsevol importació real a Codex:
+Cancel·lació cooperativa entre peticions/preparació/commit; no aborta a mig commit.
+La petició activa pot trigar fins al seu timeout. Ctrl+C o tancar el procés pot
+interrompre una pàgina; staging i checkpoint es recuperen al proper inici.
 
-1. Designar el volum extern privat i el responsable de còpia/restauració. Si no està
-   disponible, no considerar segura la conservació d'un historial real al contenidor.
-2. Executar la CLI al sistema persistent, amb `--data-dir /volum/privat/garmin` i
-   `--database-url sqlite:////volum/privat/garmin/analytics.sqlite3`. Si es treballa a
-   Codex, el volum o mecanisme privat de transferència s'ha de configurar i validar
-   abans; no hi ha cap muntatge persistent implícit ni sincronització automàtica.
-3. Fer còpies conjuntes amb els escriptors aturats: SQLite mitjançant l'API `backup`
-   de sqlite3, i tot `originals/` i `staging/`. Incloure també inventaris i checkpoints dins la DB.
-   No copiar simplement una DB activa amb `cp`: podria ometre informació del journal/WAL.
-4. Guardar la còpia completa en una segona ubicació privada, xifrada i independent.
-   Conservar versions anteriors i la clau de xifratge fora de Git i del mateix backup.
-5. Abans de destruir l'entorn temporal, restaurar la còpia en un directori net;
-   comprovar `PRAGMA integrity_check`, SHA-256 de tots els originals, recompte
-   d'activitats, versions, àlies, checkpoints i dates extremes. No eliminar l'origen
-   fins que la restauració s'hagi verificat.
-6. Validar restauracions periòdicament. Objectiu proposat: còpia després de cada
-   importació/sincronització, 7 versions diàries i 4 setmanals; pendent d'acord amb
-   capacitat i política de privacitat, encara sense scheduler implementat.
+## Protocol de consistència i auditoria
 
-La suite ha provat aquest patró de backup/restauració amb SQLite i dos FIT sintètics
-versionats. No certifica la durabilitat d'un proveïdor extern encara no configurat.
-La creació del repositori comprova la versió abans de modificar una DB existent;
-DB alienes o incompatibles es rebutgen sense afegir-hi taules.
+HTTP, parsing CRC, arxiu ZIP/FIT, detall/resum/payload i manifests privats SHA-256 fora
+de SQL. Després es valida staging i s'obre una transacció curta: activitats, versions,
+índex i checkpoint es comprometen conjuntament. Un error desfà tota la pàgina.
+Sense manifest complet: es torna a descarregar; manifest corrupte: aturar i conservar.
+No hi ha atomicitat distribuïda filesystem/SQL; poden quedar originals orfes, però
+no s'eliminen ni s'escriu una referència SQL abans que existeixi l'original.
 
-En una fase posterior, PostgreSQL privat substituiria SQLite per a concurrència i
-operació continuada; els FIT seguirien en emmagatzematge privat versionat, amb claus
-per hash i camins relatius. Cal una migració verificada (IDs, recomptes, versions,
-JSON i hashes) i pla de retorn abans del canvi. Canviar només l'URL no migra dades.
+La represa reinicia offset zero reutilitzant staging del mateix run. Registra IDs,
+hashes, offsets i intents; duplicats exactes només es processen una vegada i conflictes
+aturen la pàgina. Segona passada de catàleg, sense FIT, compara IDs/seqüència/signatures.
+Discrepàncies són possibles omissions/altes/baixes, no prova d'eliminació remota. No
+s'usen salts d'IDs globals per inferir buits. Una reconciliació incompleta/canviant és
+unstable; exhausted no certifica exhaustivitat. La cobertura sempre no verificada.
+resume_log i reconciliation_history preserven la informació dels intents anteriors.
 
-## Protocol de sincronització i recuperació
+## Secrets i seguretat
 
-1. Llegir estat i àlies en una transacció curta i tancar-la abans de fer HTTP.
-2. Cercar una pàgina i comprovar IDs, duplicats exactes/conflictius i empremta de pàgina.
-3. Per a cada activitat modificada: HTTP de detall i ZIP, arxiu immutable del ZIP/FIT,
-   parsing CRC, metadades i payload normalitzat. Tot fora de SQL. El manifest privat
-   `staging/<run_uuid>/<id>-<summary_sha>.json` s'escriu atòmicament amb fsync.
-4. Revalidar hashes del manifest i dels originals. Un staging íntegre de la mateixa
-   execució es reutilitza; corrupció o absència d'un original atura la represa.
-5. Obrir una transacció SQL curta: `save_archived` escriu només SQL, després actualitzar
-   el checkpoint amb comprovació optimista del número de pàgina. Fer commit conjunt.
-   Si falla qualsevol activitat o checkpoint, tota la pàgina es desfà.
-6. Fer una segona passada de cerca, sense FIT ni SQL obert durant HTTP, i comparar el
-   catàleg observat. Guardar-ne el resultat en una altra transacció curta.
+Clau exclusivament Windows Credential Manager amb WinVaultKeyring. No fallback a
+backend de text, no lectura d'API Key de l'entorn, ni còpia de Codex Cloud. Tokens només
+en memòria. Preferències/estat no contenen secrets; logs són codis genèrics, sense
+str(exc), traceback, cossos HTTP, headers ni URLs amb credencials. Windows ACL del
+perfil i BitLocker/xifratge del dispositiu protegeixen dades en repòs; SQLite i FIT
+no estan xifrats per l'app. Vegeu SECURITY.md.
 
-Staging i originals són dades privades, ignorades per Git i sota permisos de fitxer
-600/directori 700 quan es creen. No contenen tokens. Es conserven també el detall,
-resum i payload en l'arxiu per hash. No es netegen automàticament: cal validar abans
-una política de retenció per evitar pèrdues. El volum s'ha de xifrar; permisos i hashes
-no són xifratge. El staging pot augmentar l'espai utilitzat considerablement.
+## Backups, restauració i actualitzacions
 
-Una fallada de xarxa o disc abans de completar el manifest pot deixar originals
-orfes; en reprendre es torna a descarregar aquella activitat. Si el manifest és
-complet, no cal baixar-la de nou. Una fallada SQL deixa staging reutilitzable i el
-checkpoint anterior. KeyboardInterrupt es registra com `interrupted`; un SIGKILL
-pot deixar `running`, però el staging i l'últim checkpoint compromès permeten reprendre.
-El protocol està provat amb excepcions injectades, no amb talls físics d'alimentació.
-No hi ha atomicitat distribuïda entre filesystem i SQL: s'escriu primer al filesystem,
-no s'eliminen originals i així una fallada de procés deixa orfes, no referències noves
-compromeses a originals encara no escrits. Corrupció posterior del disc requereix backup.
+Botó local: worker adquireix el lock, SQLite backup API i còpia d'originals, imports,
+staging, settings i estat. No inclou Credential Manager ni fitxers de lock. No recorre
+backups/ dins d'una altra còpia. Recomanació: còpia després de cada importació i segona
+còpia manual a USB xifrat. Cap transferència a proveïdors. Restauració: app tancada,
+conservar carpeta actual i substituir-la per contingut del backup, validar recomptes,
+versions i hashes. Les proves restauren dades sintètiques, no certifiquen el disc físic.
 
-La represa torna a l'offset zero per evitar omissions per desplaçaments acumulats;
-es conserven les versions i signatures compromeses i es reutilitza staging íntegre.
-No es reutilitza staging entre execucions noves. Esquema SQL 1 sense migració: només
-s'afegeixen camps versionats `audit_version=2` al JSON d'auditoria.
-
-## Auditoria de paginació ampliada
-
-Cada pàgina compromesa registra intent, offset, IDs, nombre d'entrades, hash i hora.
-La pàgina pendent es conserva a l'auditoria si una preparació falla; en reprendre,
-resume_log i reconciliation_history preserven els intents/lectures anteriors. S'etiqueten
-IDs repetits dins/entre pàgines, resums conflictius o canviats i pàgines repetides.
-Duplicats idèntics es processen una vegada; els conflictius aturen la pàgina.
-
-La reconciliació registra pàgines/IDs, nous IDs no vistos a la primera passada, IDs
-que no reapareixen, resums modificats, ordre diferent i IDs coneguts de la DB que ja
-no es veuen. Són discrepàncies candidates: poden ser omissions, altes, baixes o canvis
-d'ordenació; no són proves de supressió remota ni motiu per esborrar dades locals.
-Els IDs són globals i no se'n pressuposa contigüitat numèrica. Intervals temporals
-sense activitats es continuen mostrant a `coverage`, amb la política documentada.
-
-`exhausted` significa que s'ha observat pàgina buida a dues passades i sense incidències;
-`unstable` indica discrepàncies o reconciliació incompleta; `page_limit`, `failed` i
-`interrupted` requereixen revisió/represa. Cap estat significa historial complet.
-Una modificació que no aparegui a cap de les dues lectures o no canviï el resum pot
-passar desapercebuda: cal inventari extern i `--refresh` periòdic. La reconciliació
-no descarrega automàticament els IDs nous; es recuperen en una nova passada.
-Cada passada té el pressupost `max_pages`; el cost de cerca pot arribar a 2× aquest
-límit, a més dels detalls i FIT. Cal confirmar quotes oficials abans d'operació real.
-
-## Dues opcions concretes de persistència permanent
-
-Propostes, **sense desplegament ni contractació**. Pressupostos consultats el
-26-10-2026, USD/mes sense impostos, dins quotes incloses, amb fins a 20 GiB totals de
-fitxers (inclosos staging/còpies actives). En B es pressuposta el node mínim de DB
-i una reserva opcional de 10 GiB addicionals. Costos de
-manteniment humà, dominis, serveis VPN de pagament, excés d'espai/transferència i
-còpies independents addicionals no inclosos. No és una oferta comercial garantida.
-
-| | A — SQLite en Droplet privat | B — PostgreSQL gestionat privat + worker |
-| --- | --- | --- |
-| Proveïdor/configuració | DigitalOcean, regió UE, Droplet Basic 2 GiB, volum 20 GiB LUKS | DigitalOcean, PostgreSQL Basic 1 GiB, worker Basic 2 GiB i volum LUKS 20 GiB per originals/staging |
-| Originals i backup | Filesystem del volum; restic amb xifratge de client a Spaces privat, CDN desactivada | Originals/staging al volum del worker; backup restic a Spaces; backup/PITR del servei DB i exportacions coordinades |
-| Privacitat | CLI només al worker, un escriptor; accés privat per VPN/SSH autoritzat | DB en VPC, trusted sources limitades al worker; connexió TLS `verify-full`, rol mínim |
-| Xifratge | LUKS amb clau fora de Git/root disc, swap desactivat o xifrat; restic xifrat abans de sortir | DB xifrada en repòs pel servei i TLS; LUKS per filesystem i restic per backup |
-| Cost base calculat | worker $12 + volum $2 + Spaces $5 = **$19/mes** | worker $12 + volum $2 + PostgreSQL $15.15 + Spaces $5 = **$34.15/mes**; reserva de 10 GiB addicionals $2.15 → **$36.30/mes** |
-| Pressupost operatiu orientatiu | **$19–25/mes**; unes 1–2 h/mes d'administració pròpia | **$35–45/mes**; unes 0.5–1.5 h/mes, sobretot worker/backup |
-| Avantatges | Compatible directament amb la persistència provada, baixa complexitat i cost | DB gestionada, millor concurrència i recuperació; separa el cicle de vida del worker de la DB |
-| Inconvenients | Pedaços del SO, desbloqueig LUKS, còpies/restauració a càrrec nostre; sense alta disponibilitat | Migració SQLite→PostgreSQL i driver pendents de prova; FIT encara depenen del volum/backup; més cost i coordinació DB/filesystem |
-
-Fonts oficials de preus: [Droplets](https://www.digitalocean.com/pricing/droplets),
-[Volumes](https://docs.digitalocean.com/products/volumes/details/pricing/),
-[Spaces](https://www.digitalocean.com/pricing/spaces-object-storage),
-[PostgreSQL](https://www.digitalocean.com/pricing/managed-databases) i
-[emmagatzematge addicional PostgreSQL](https://docs.digitalocean.com/products/databases/postgresql/details/pricing/).
-Seguretat DB: [documentació oficial](https://docs.digitalocean.com/products/databases/postgresql/how-to/secure/).
-Els càlculs són estimacions pròpies sobre aquestes tarifes; verificar pressupost
-final, regió i impostos abans d'autoritzar. El clúster mínim no és alta disponibilitat.
-
-Compatibilitat amb Codex Web en ambdues: Codex manté només codi i fixtures sintètiques;
-el worker persistent és l'autoritat de les dades. Accés operatiu només amb VPN/TCP
-explicitament configurats i aprovats al runtime, respectant el proxy, allowlists i
-gestor de secrets. Ara no hi ha cap connexió configurada a aquests serveis. No cal
-copiar l'historial real al contenidor per desenvolupar. SQLite s'executa al worker,
-mai s'obre com a fitxer compartit per NFS/SSHFS des de Codex. En l'opció B la DB no
-s'exposa públicament per facilitar Codex. La publicació de codi des de la PR i les
-operacions remotes també necessiten el flux d'autorització corresponent.
-
-Recomanació inicial: opció A per a ús personal d'un sol escriptor. Passar a B quan
-hi hagi necessitat real de concurrència, després d'una migració i restauració
-verificades. Ni muntatges, ni buckets, ni VPN, ni scheduler s'han creat en aquesta tasca.
+Actualitzar no canvia LOCALAPPDATA de dades, no esborra originals i conserva el venv
+anterior. No hi ha servei permanent de Windows ni tasca programada instal·lada:
+només s'executa quan l'usuari obre l'app.

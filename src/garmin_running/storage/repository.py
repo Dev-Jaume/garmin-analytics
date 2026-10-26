@@ -3,6 +3,8 @@
 import hashlib
 import json
 import os
+import shutil
+import sqlite3
 import tempfile
 from dataclasses import asdict
 from datetime import UTC, datetime
@@ -22,6 +24,7 @@ from sqlalchemy import (
     func,
     insert,
     inspect,
+    or_,
     select,
     update,
 )
@@ -72,7 +75,17 @@ import_runs = Table(
     Column("at", String, nullable=False),
     Column("report", JSON, nullable=False),
 )
-SCHEMA_VERSION = "1"
+activity_index = Table(
+    "activity_index",
+    metadata,
+    Column("id", String, ForeignKey("activities.id"), primary_key=True),
+    Column("start", String, index=True),
+    Column("sport", String, index=True),
+    Column("metrics", JSON, nullable=False),
+    Column("flags", JSON, nullable=False),
+    Column("device", String),
+)
+SCHEMA_VERSION = "2"
 schema = Table("schema_version", metadata, Column("version", String, primary_key=True))
 
 
@@ -104,11 +117,22 @@ class Repository:
                     raise ValueError("DB existent sense versió; cal migració explícita")
                 with self.engine.connect() as conn:
                     existing_version = conn.execute(select(schema.c.version)).scalars().all()
-                if existing_version != [SCHEMA_VERSION]:
+                if existing_version not in (["1"], [SCHEMA_VERSION]):
                     raise ValueError("Versió de DB incompatible; cal migració")
         except Exception:
             self.engine.dispose()
             raise
+        if existing_tables and existing_version == ["1"] and self.engine.dialect.name == "sqlite":
+            backup = self.data_dir / "backups" / f"before-schema2-{uuid4()}.sqlite3"
+            backup.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            source = sqlite3.connect(self.engine.url.database)
+            target = sqlite3.connect(backup)
+            try:
+                source.backup(target)
+            finally:
+                source.close()
+                target.close()
+            backup.chmod(0o600)
         metadata.create_all(self.engine)
         if self.engine.dialect.name == "sqlite" and self.engine.url.database not in (
             None,
@@ -117,7 +141,15 @@ class Repository:
             Path(self.engine.url.database).chmod(0o600)
         with self.engine.begin() as conn:
             existing = conn.execute(select(schema.c.version)).scalars().all()
-            if existing and existing != [SCHEMA_VERSION]:
+            if existing == ["1"]:
+                # Índex lleuger: una activitat cada vegada, sense memòria proporcional
+                # a tots els registres FIT. Les activitats/originals no es modifiquen.
+                conn.execute(activity_index.delete())
+                rows = conn.execute(select(activities.c.id, activities.c.current)).yield_per(1)
+                for activity_id, payload in rows:
+                    self._index(conn, activity_id, payload)
+                conn.execute(update(schema).values(version=SCHEMA_VERSION))
+            elif existing and existing != [SCHEMA_VERSION]:
                 raise ValueError("Versió de DB incompatible; cal migració")
             if not existing:
                 conn.execute(insert(schema).values(version=SCHEMA_VERSION))
@@ -251,10 +283,94 @@ class Repository:
                     .where(activities.c.id == entity_id)
                     .values(start=data.start, sport=data.sport, current=payload)
                 )
+        if not same and not preserve_enrichment:
+            self._index(conn, entity_id, payload)
         for key in keys:
             if conn.execute(select(aliases.c.alias).where(aliases.c.alias == key)).first() is None:
                 conn.execute(insert(aliases).values(alias=key, activity_id=entity_id))
         return entity_id
+
+    @staticmethod
+    def _index(conn, activity_id, payload):
+        values = {
+            "start": payload["start"],
+            "sport": payload["sport"],
+            "metrics": payload["metrics"],
+            "flags": payload["flags"],
+            "device": payload.get("device"),
+        }
+        exists = conn.execute(
+            select(activity_index.c.id).where(activity_index.c.id == activity_id)
+        ).first()
+        if exists:
+            conn.execute(
+                update(activity_index).where(activity_index.c.id == activity_id).values(**values)
+            )
+        else:
+            conn.execute(insert(activity_index).values(id=activity_id, **values))
+
+    def summaries(self, *, start=None, end=None, limit=None, offset=0, include_undated=False):
+        query = select(activity_index).order_by(activity_index.c.start.desc(), activity_index.c.id)
+        if start:
+            condition = activity_index.c.start >= start
+            query = query.where(
+                or_(condition, activity_index.c.start.is_(None)) if include_undated else condition
+            )
+        if end:
+            condition = activity_index.c.start < end
+            query = query.where(
+                or_(condition, activity_index.c.start.is_(None)) if include_undated else condition
+            )
+        if limit is not None:
+            query = query.limit(limit).offset(offset)
+        with self.engine.connect() as conn:
+            return [dict(row) for row in conn.execute(query).mappings()]
+
+    def activity(self, activity_id):
+        with self.engine.connect() as conn:
+            return conn.execute(
+                select(activities.c.current).where(activities.c.id == activity_id)
+            ).scalar_one()
+
+    def activity_revision(self, activity_id):
+        with self.engine.connect() as conn:
+            return conn.execute(
+                select(versions.c.digest)
+                .where(versions.c.activity_id == activity_id)
+                .order_by(versions.c.imported_at.desc(), versions.c.id.desc())
+                .limit(1)
+            ).scalar_one_or_none()
+
+    def snapshot_directory(self, destination):
+        """Cridar només amb el lock d'escriptor adquirit; mai exporta credencials."""
+        if self.engine.dialect.name != "sqlite":
+            raise ValueError("La còpia local requereix SQLite")
+        destination.mkdir(parents=True, exist_ok=False, mode=0o700)
+        source = sqlite3.connect(self.engine.url.database)
+        target = sqlite3.connect(destination / "analytics.sqlite3")
+        try:
+            source.backup(target)
+        finally:
+            source.close()
+            target.close()
+        for name in ("originals", "staging", "imports"):
+            if (self.data_dir / name).exists():
+                shutil.copytree(self.data_dir / name, destination / name)
+        for name in ("settings.json", "sync-status.json"):
+            if (self.data_dir / name).exists():
+                shutil.copyfile(self.data_dir / name, destination / name)
+        return destination
+
+    def sync_status(self, run_id):
+        with self.engine.connect() as conn:
+            return conn.execute(
+                select(sync_runs.c.status).where(sync_runs.c.id == run_id)
+            ).scalar_one_or_none()
+
+    def latest_sync(self):
+        with self.engine.connect() as conn:
+            rows = conn.execute(select(sync_runs.c.id, sync_runs.c.status, sync_runs.c.audit)).all()
+        return max(rows, key=lambda r: r.audit.get("started_at", ""), default=None)
 
     def list_activities(self) -> list[dict]:
         with self.engine.connect() as conn:

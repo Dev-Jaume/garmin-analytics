@@ -6,7 +6,7 @@ import os
 from dataclasses import asdict
 from pathlib import Path
 
-from garmin_running.garmin.client import GarminClient
+from garmin_running.garmin.client import OFFICIAL_CONTRACT_VALIDATED, GarminClient
 from garmin_running.garmin.sync import Synchronizer
 from garmin_running.ingestion.importer import Importer
 from garmin_running.storage.repository import Repository
@@ -30,6 +30,8 @@ def main() -> int:
     args = parser.parse_args()
     if args.command == "sync" and not (args.secrets_approved and args.contract_verified):
         parser.error("Cal revisar docs/SECURITY.md i docs/API_CONTRACT.md abans d'habilitar sync")
+    if args.command == "sync" and not OFFICIAL_CONTRACT_VALIDATED:
+        parser.error("Connexió bloquejada: contracte oficial complet pendent de validar")
     # El directori i la DB s'han de situar en volum privat per a dades reals.
     os.umask(0o077)
     args.data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -46,8 +48,10 @@ def main() -> int:
         elif args.command == "init":
             print("Persistència inicialitzada; encara no hi ha dades personals importades.")
         elif args.command == "sync":
+            from garmin_running.desktop.credentials import WindowsCredentials
+
             client = GarminClient(
-                os.environ.get("GARMIN_API_KEY", ""), approved=True, contract_verified=True
+                WindowsCredentials().get() or "", approved=True, contract_verified=True
             )
             try:
                 run_id = Synchronizer(client, repo).run(resume=args.resume, refresh=args.refresh)

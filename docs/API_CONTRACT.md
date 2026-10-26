@@ -66,5 +66,13 @@ El Content-Type exacte retornat pel servidor encara no s'ha observat ni certific
 
 Obtenir legítimament l'OAS públic complet, registrar-ne versió i SHA-256, validar els
 DTO i semàntica de paginació i afegir fixtures de contracte. No s'ha inventat un hash
-d'una especificació que no hem pogut obtenir. No s'han habilitat les opcions de
-connexió real, llegit claus, cridat dades Garmin ni iniciat la fase 2.
+d'una especificació que no hem pogut obtenir. No s'ha habilitat la connexió real, llegit claus ni cridat dades Garmin.
+
+## Aplicació Windows local
+
+La font de clau de l'app és Windows Credential Manager, sense lectura de la variable
+GARMIN_API_KEY. El consentiment inicial es desa localment però no elimina el bloqueig
+OFFICIAL_CONTRACT_VALIDATED=False, aplicat també a la CLI abans de consultar la clau.
+El worker i l'auto-sync estan implementats i provats amb mocks; la descàrrega real
+continua pendent. La nova UI local reutilitza el protocol d'aquesta PR; no canvia
+els endpoints per rutes internes ni assumeix un servei de novetats sense paginar.

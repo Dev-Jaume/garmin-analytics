@@ -18,6 +18,8 @@ from typing import Any
 
 import httpx
 
+OFFICIAL_CONTRACT_VALIDATED = False  # DTO i paginació OAS encara pendents.
+
 BASE_URL = "https://personal.connectapi.garmin.com"
 TOKEN_PATH = "/personalapitoken-service/personal-api/personal-api-key/token"
 SEARCH_PATH = "/activitylist-service/activities/search/activities"
