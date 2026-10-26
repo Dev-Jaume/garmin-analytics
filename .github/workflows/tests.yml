@@ -12,7 +12,7 @@ jobs:
     env:
       STREAMLIT_BROWSER_GATHER_USAGE_STATS: 'false'
       GARMIN_API_KEY: ''
-      GRA_DATA_DIR: ${{ runner.temp }}/gra-test-data
+      GRA_DATA_DIR: ${{ github.workspace }}/private/ci-data
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
