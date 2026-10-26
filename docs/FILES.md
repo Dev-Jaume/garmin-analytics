@@ -1,0 +1,33 @@
+# Fitxers creats
+
+- `.env.example`
+- `.github/workflows/tests.yml`
+- `.gitignore`
+- `AGENTS.md`
+- `README.md`
+- `docs/API_CONTRACT.md`
+- `docs/ARCHITECTURE.md`
+- `docs/FILES.md`
+- `docs/PHASE1_REPORT.md`
+- `docs/SECURITY.md`
+- `docs/VALIDATION.md`
+- `pyproject.toml`
+- `requirements-dev.lock`
+- `scripts/smoke_offline.py`
+- `src/garmin_running/__init__.py`
+- `src/garmin_running/analytics/__init__.py`
+- `src/garmin_running/cli.py`
+- `src/garmin_running/domain.py`
+- `src/garmin_running/fit/__init__.py`
+- `src/garmin_running/fit/parser.py`
+- `src/garmin_running/garmin/__init__.py`
+- `src/garmin_running/garmin/client.py`
+- `src/garmin_running/garmin/sync.py`
+- `src/garmin_running/ingestion/__init__.py`
+- `src/garmin_running/ingestion/importer.py`
+- `src/garmin_running/storage/__init__.py`
+- `src/garmin_running/storage/repository.py`
+- `tests/conftest.py`
+- `tests/test_cli.py`
+- `tests/test_garmin.py`
+- `tests/test_ingestion.py`

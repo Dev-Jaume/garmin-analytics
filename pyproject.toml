@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "garmin-running-analytics"
+version = "0.1.0"
+description = "Importació privada i auditable de l'historial Garmin"
+requires-python = ">=3.12"
+dependencies = ["httpx>=0.28,<0.29", "SQLAlchemy>=2.0,<2.2", "fitdecode>=0.11,<0.12"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<10", "ruff>=0.11,<0.18"]
+postgres = ["psycopg[binary]>=3.2,<4"]
+
+[project.scripts]
+gra = "garmin_running.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
