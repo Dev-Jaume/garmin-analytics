@@ -4,6 +4,9 @@ Les rutes estan documentades. Els esquemes de resposta i paràmetres del perfil
 provisional han de contrastar-se amb l'OpenAPI abans d'habilitar la connexió real.
 """
 
+import base64
+import binascii
+import json
 import math
 import random
 import time
@@ -40,6 +43,7 @@ class GarminClient:
         contract_verified: bool = False,
         sleep: Callable[[float], None] = time.sleep,
         clock: Callable[[], float] = time.monotonic,
+        wall_clock: Callable[[], float] = time.time,
         min_interval: float = 1.0,
         max_retries: int = 3,
     ):
@@ -52,6 +56,7 @@ class GarminClient:
         self._api_key = api_key
         self._token: Token | None = None
         self.sleep, self.clock = sleep, clock
+        self.wall_clock = wall_clock
         self.min_interval, self.max_retries = min_interval, max_retries
         self._last_request: float | None = None
         self._http = httpx.Client(
@@ -117,28 +122,40 @@ class GarminClient:
 
     def _authenticate(self) -> None:
         response = self._request(
-            "POST", TOKEN_PATH, headers={"Authorization": f"ApiKey {self._api_key}"}
+            "POST",
+            TOKEN_PATH,
+            headers={"Accept": "*/*", "Authorization": f"ApiKey {self._api_key}"},
         )
         if response.status_code != 200:
             raise GarminError(f"Autenticació rebutjada (HTTP {response.status_code})")
-        obj = self._json(response)
-        if not isinstance(obj, dict):
-            raise GarminError("Esquema de token desconegut")
-        token = obj.get("access_token")
-        expiry = obj.get("expires_in")
-        if not isinstance(token, str) or not token or "\n" in token or "\r" in token:
-            raise GarminError("Esquema de token desconegut")
-        if (
-            isinstance(expiry, bool)
-            or not isinstance(expiry, (int, float))
-            or not math.isfinite(expiry)
-            or expiry <= 0
-        ):
-            raise GarminError("Caducitat del token no verificable")
-        self._token = Token(token, self.clock() + expiry * 0.9)
+        # Referència oficial Garmin: JWT en text, sense embolcall OAuth JSON.
+        token = response.text.strip()
+        try:
+            parts = token.split(".")
+            if len(parts) != 3 or any(not part for part in parts):
+                raise ValueError
+            if any(ord(c) < 33 or ord(c) > 126 for c in token):
+                raise ValueError
+            payload = json.loads(base64.urlsafe_b64decode(parts[1] + "=" * (-len(parts[1]) % 4)))
+            expiry = payload["exp"]
+            if isinstance(expiry, bool) or not isinstance(expiry, (int, float)):
+                raise ValueError
+            remaining = expiry - self.wall_clock()
+            if not math.isfinite(remaining) or remaining <= 0:
+                raise ValueError
+        except (ValueError, KeyError, TypeError, binascii.Error):
+            raise GarminError("Token JWT o caducitat exp no verificable") from None
+        # exp només programa la memòria cau. No autentiquem ni validem signatures JWT;
+        # el servidor Garmin verifica el token a través de TLS verificat.
+        self._token = Token(token, self.clock() + min(remaining, 86400) * 0.9)
 
     def _get(
-        self, path: str, params: dict | None = None, *, max_bytes: int = 16 * 1024 * 1024
+        self,
+        path: str,
+        params: dict | None = None,
+        *,
+        max_bytes: int = 16 * 1024 * 1024,
+        accept: str = "application/json",
     ) -> httpx.Response:
         for attempt in range(2):
             if not self._token or self.clock() >= self._token.deadline:
@@ -148,7 +165,7 @@ class GarminClient:
                 path,
                 params=params,
                 max_bytes=max_bytes,
-                headers={"Authorization": f"Bearer {self._token.value}"},
+                headers={"Accept": accept, "Authorization": f"Bearer {self._token.value}"},
             )
             if response.status_code == 401 and attempt == 0:
                 self._token = None
@@ -170,7 +187,11 @@ class GarminClient:
 
     @staticmethod
     def _id(activity_id: str) -> str:
-        if not str(activity_id).isdigit():
+        if (
+            not str(activity_id).isascii()
+            or not str(activity_id).isdecimal()
+            or int(activity_id) <= 0
+        ):
             raise ValueError("activityId invàlid")
         return str(activity_id)
 
@@ -181,6 +202,11 @@ class GarminClient:
         return obj
 
     def download(self, activity_id: str) -> bytes:
-        return self._get(
-            f"/download-service/files/activity/{self._id(activity_id)}", max_bytes=128 * 1024 * 1024
+        content = self._get(
+            f"/download-service/files/activity/{self._id(activity_id)}",
+            max_bytes=128 * 1024 * 1024,
+            accept="application/zip, application/x-zip-compressed, application/octet-stream",
         ).content
+        if not content:
+            raise GarminError("Descàrrega buida")
+        return content

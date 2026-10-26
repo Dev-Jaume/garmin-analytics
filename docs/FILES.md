@@ -1,4 +1,4 @@
-# Fitxers creats
+# Fitxers del projecte
 
 - `.env.example`
 - `.github/workflows/tests.yml`
@@ -31,3 +31,4 @@
 - `tests/test_cli.py`
 - `tests/test_garmin.py`
 - `tests/test_ingestion.py`
+- `tests/test_sync_recovery.py`

@@ -1,6 +1,6 @@
 import httpx
 import pytest
-from conftest import synthetic_fit
+from conftest import synthetic_fit, synthetic_jwt
 from sqlalchemy import select
 
 from garmin_running.garmin.client import SEARCH_PATH, TOKEN_PATH, GarminClient, GarminError
@@ -26,9 +26,9 @@ class MockGarmin:
             self.tokens += 1
             assert request.headers["Authorization"] == "ApiKey synthetic-key"
             return httpx.Response(
-                200, json={"access_token": f"test-{self.tokens}", "expires_in": 100}
+                200, text=synthetic_jwt(1_800_000_000 + self.now + 100, jti=self.tokens)
             )
-        assert request.headers["Authorization"].startswith("Bearer test-")
+        assert request.headers["Authorization"].startswith("Bearer eyJ")
         if request.url.path == SEARCH_PATH:
             start = int(request.url.params["start"])
             return httpx.Response(200, json=[{"activityId": 1}] if start == 0 else [])
@@ -44,6 +44,7 @@ class MockGarmin:
             transport=httpx.MockTransport(handler or self.handle),
             sleep=self.sleep,
             clock=lambda: self.now,
+            wall_clock=lambda: 1_800_000_000 + self.now,
             **kwargs,
         )
 
@@ -308,11 +309,9 @@ def test_expiry_renews_using_api_key_without_refresh_token(fit_bytes):
             server.tokens += 1
             return httpx.Response(
                 200,
-                json={
-                    "access_token": f"test-{server.tokens}",
-                    "expires_in": 10,
-                    "refresh_token": "ignore-synthetic",
-                },
+                text=synthetic_jwt(
+                    1_800_000_000 + server.now + 10, refresh_token="ignore-synthetic"
+                ),
             )
         return server.handle(request)
 
@@ -334,9 +333,50 @@ def test_expiry_renews_using_api_key_without_refresh_token(fit_bytes):
 
 def test_boolean_expiry_rejected(fit_bytes):
     server = MockGarmin(fit_bytes)
-    client = server.client(
-        lambda _: httpx.Response(200, json={"access_token": "synthetic", "expires_in": True})
-    )
-    with pytest.raises(GarminError, match="Caducitat"):
+    client = server.client(lambda _: httpx.Response(200, text=synthetic_jwt(True)))
+    with pytest.raises(GarminError, match="caducitat"):
         client.detail("1")
+    client.close()
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "not-a-jwt",
+        synthetic_jwt(0),
+        synthetic_jwt("future"),
+        synthetic_jwt(None),
+        synthetic_jwt(float("inf")),
+    ],
+)
+def test_invalid_plain_jwt_expiry_is_rejected(fit_bytes, value):
+    server = MockGarmin(fit_bytes)
+    client = server.client(lambda _: httpx.Response(200, text=value))
+    with pytest.raises(GarminError, match="JWT"):
+        client.detail("1")
+    client.close()
+
+
+def test_token_is_plain_jwt_and_resource_headers_match_official_reference(fit_bytes):
+    server = MockGarmin(fit_bytes)
+    client = server.client()
+    client.search(0, 20)
+    token_request = server.requests[0]
+    search_request = server.requests[1]
+    assert token_request.headers["Accept"] == "*/*"
+    assert token_request.headers["Authorization"] == "ApiKey synthetic-key"
+    assert search_request.headers["Accept"] == "application/json"
+    assert search_request.headers["Authorization"].startswith("Bearer eyJ")
+    assert dict(search_request.url.params) == {"start": "0", "limit": "20"}
+    assert client._token.value not in repr(client._token)
+    client.close()
+
+
+@pytest.mark.parametrize("activity_id", ["0", "１２３", "-1", "1.5"])
+def test_official_download_id_validation(fit_bytes, activity_id):
+    server = MockGarmin(fit_bytes)
+    client = server.client()
+    with pytest.raises(ValueError):
+        client.download(activity_id)
+    assert not server.requests
     client.close()

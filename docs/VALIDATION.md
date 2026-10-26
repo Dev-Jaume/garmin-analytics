@@ -1,92 +1,80 @@
-# Informe de validació — 26 d'octubre de 2026
+# Validació de la segona revisió de fase 1 — 26 d'octubre de 2026
 
-Entorn: Python 3.12.14. Dependències exactes a `requirements-dev.lock`.
-Projecte instal·lat correctament en mode editable a `work/venv`.
+Entorn Python 3.12.14; dependències del projecte fixades a `requirements-dev.lock`.
+Totes les dades d'entrada són sintètiques. La fixture autouse prohibeix connexions de
+xarxa reals; les execucions s'han fet amb GARMIN_API_KEY retirada del procés de tests.
 
-| Comprovació executada | Resultat final |
+| Ordre/comprovació | Resultat local |
 | --- | --- |
-| `work/venv/bin/python -m pytest -q` | **55 passed in 4.11s**; 0 fallades |
-| `work/venv/bin/ruff check .` | All checks passed |
-| `work/venv/bin/ruff format --check .` | Cap canvi de format necessari |
-| `work/venv/bin/python scripts/smoke_offline.py` | Importació repetida: 1 activitat única |
-| `work/venv/bin/pip check` | No broken requirements found |
-| Instal·lació editable amb pip | Construcció i instal·lació correctes |
+| `env -u GARMIN_API_KEY work/venv/bin/python -m pytest -q` | **82 passed in 4.81s**, 0 fallades |
+| `ruff check src tests scripts` | Correcte |
+| `ruff format --check src tests scripts` | Correcte |
+| `python scripts/smoke_offline.py` | Dues importacions, una activitat sintètica única |
+| `pip check` | Cap dependència trencada |
+| `pip-audit -r requirements-dev.lock --no-deps --disable-pip --vulnerability-service pypi` | 15 dependències, cap vulnerabilitat coneguda |
+| `bandit -r src` | 3 avisos LOW revisats, 0 MEDIUM/HIGH |
+| Revisió heurística/manual dels candidats a Git | Sense secrets reals, FIT ni DB detectats |
 
-## Abast efectivament provat
+## Contracte i autenticació
 
-- FIT binaris sintètics: CRC independent, camps escalats/originals, unitats, HR nul·la,
-  absència d'altitud, pauses, intervals irregulars i duplicats conservats.
-- FIT invàlids, truncats, CRC alterat i multisessió rebutjats.
-- Identitat per hash, ID explícit i serial/inici/esport, reimportació idempotent,
-  versions modificades, enriquiment API i conflictes potencials marcats.
-- Importació de directori, ZIP, ZIP imbricat, rutes `../` sense extracció, límits
-  acumulats/membres/profunditat, resum JSON i format desconegut.
-- SQLite real: persistència entre connexions, rollback i integritat d'originals.
-- Temps GMT/UTC i offsets, preservació de data local sense zona inventada.
-- API simulada: aprovació necessària, autenticació, caducitat, primer 401 i renovació,
-  límit local de freqüència, 429/500/503, backoff, reintents exhaurits i errors de xarxa.
-- Retry-After llarg ajornat, límit de mida, redireccions rebutjades, errors sense cos
-  sensible, esquemes de token/cerca desconeguts i ID amb intent de travessia rebutjats.
-- Paginació, pàgina repetida, límit de pàgines, descàrregues incrementals, refresc,
-  fallada/represa i atomicitat quan falla la segona activitat d'una pàgina.
-- CLI offline sense clau i bloqueig de `sync` abans de llegir credencials.
-- Auditoria persistent d'importacions i cobertura sempre no verificada.
+JWT en text amb claim exp, capçaleres ApiKey/Bearer/Accept, absència de refresh-token,
+renovació en caducar i després de 401, JSON antic rebutjat, JWT malformats/caducats
+rebutjats (incloent exp booleà, nul, text o infinit), IDs ASCII positius, redireccions
+rebutjades, límits de mida, paginació i errors/reintents HTTP. Fixtures contrastades
+amb el client Python oficial Garmin, revisió fixada a `API_CONTRACT.md`.
 
-Sortida del smoke test (simulada, no personal):
+Això valida el nostre comportament davant el perfil simulat. No s'ha fet una prova
+contra Garmin ni obtingut l'OAS complet: DTO, garanties de paginació i cobertura
+històrica real continuen pendents.
 
-```json
-{
-  "synthetic": true,
-  "unique_activities": 1,
-  "coverage": "Cobertura no verificada",
-  "repeat_import": "idempotent"
-}
-```
+## Ingesta i persistència
 
-## Pendent i no verificat
+FIT binaris amb CRC independent, camps/units/nuls, irregularitats i duplicats,
+ZIP imbricats i rutes sense extracció, límits i errors d'importació, identitat/versionat,
+enriquiment API preservat i resums conservadors. SQLite real: rollback, persistència
+entre connexions, DB incompatibles intactes i backup/restauració de dues versions
+amb verificació d'originals i integritat. No s'ha provat PostgreSQL ni infraestructura.
 
-1. Esquemes complets i paràmetres OpenAPI, inclòs el retorn del token.
-2. Injecció real del Network secret, permisos del compte i quotes Garmin.
-3. Descàrrega real, inventari complet, dates extremes reals i discontinuïtats.
-4. Variants d'exportació d'un compte real i fitxers multiesport.
-5. PostgreSQL, migracions, volum persistent i rendiment a gran escala.
-6. Execució de GitHub Actions en remot: el workflow s'ha creat però no s'ha llançat.
-7. Motors fisiològics, dashboard i automatització: fora de fase 1.
+## Fallades i auditoria de sincronització
 
-No s'ha executat cap petició autenticada ni s'ha publicat res. Els resultats amb mocks
-validen el comportament del programa per al perfil simulat; no validen el contracte
-real ni certifiquen que tot l'historial Garmin sigui accessible.
+- Instrumentació SQLAlchemy comprova que no hi ha cap transacció SQL durant cap
+  petició HTTP: token, cerca, detall, descàrrega o reconciliació.
+- Fallada de xarxa a la segona activitat després de preparar la primera: cap activitat
+  compromesa de la pàgina, checkpoint intacte i represa reutilitzant el primer staging.
+- Error de disc després de descarregar però abans d'arxivar: cap referència SQL; la
+  represa torna a descarregar perquè no hi ha manifest complet.
+- Error SQL després del primer insert d'una pàgina: rollback conjunt i posterior
+  represa amb els dos staging preparats, sense repetir descàrregues.
+- KeyboardInterrupt a mitja pàgina: estat interrupted i represa idempotent.
+- Fallada entre pàgines: pàgina ja compromesa conservada, represa des de zero i sense
+  duplicació; fallada de xarxa en reconciliació també recuperable.
+- Manifest manipulat o original absent: represa bloquejada abans d'escriure SQL.
+- Duplicats dins de pàgina, conflictius i entre pàgines; pàgina repetida i límit de pàgines.
+- Inserció al cap, supressió durant la passada, resum canviat entre passades,
+  verificació incompleta i IDs del catàleg anterior que no reapareixen: inestabilitat
+  registrada sense esborrar activitats locals ni afirmar exhaustivitat.
+- IDs numèricament no contigus no generen falses omissions.
 
-## Revisió de tancament de fase 1
+No són proves de tall físic d'alimentació, SIGKILL real, accés concurrent de múltiples
+sincronitzadors, corrupció arbitrària de disc ni grans volums en producció.
 
-Nova execució: **55 proves superades, 0 fallades**. La suite prohibeix connexions reals
-amb una fixture autouse; les execucions s'han fet amb GARMIN_API_KEY eliminada de
-l'entorn del procés de proves. Les claus literals dels mocks són fictícies.
+## Seguretat i límits de l'auditoria
 
-Proves noves: nova petició amb `Authorization: ApiKey` en caducar, cap ús de refresh
-token encara que aparegui a la resposta simulada, rebuig de caducitat booleana, DB
-aliena/incompatible intacta i restauració conjunta de DB + originals amb dues versions.
+Bandit 1.9.4 conserva els tres avisos, sense supressions: B105 assenyala TOKEN_PATH,
+una ruta pública; els dos B311 són jitter de backoff, sense cap funció criptogràfica.
+El procés Bandit retorna 1 pels avisos; no s'ha presentat com una execució sense avisos.
 
-Comprovacions de seguretat executades:
+pip-audit 2.10.1 consulta només metadades públiques de les 15 dependències del lock a
+PyPI. No envia salut, ubicacions ni credencials. No cobreix SO, Python, futura
+infraestructura ni dependències de build no fixades.
 
-- Escaneig dels 31 candidats a Git: cap patró detectat de clau privada, token de servei,
-  JWT, credencial a URL, FIT binari, DB SQLite ni exportació privada. Revisió manual
-  dels literals d'autenticació: ruta pública i valors sintètics. Sis regles d'exclusió
-  comprovades. L'únic FIT de smoke coincideix byte a byte amb el generador sintètic.
-- Bandit 1.9.4, `bandit -r src`: 3 avisos LOW, 0 MEDIUM, 0 HIGH. B105 identifica
-  incorrectament TOKEN_PATH (ruta pública) com a contrasenya; dos B311 corresponen
-  a random.random per jitter de backoff, sense funció criptogràfica. Revisats,
-  no ocultats amb supressions. El procés Bandit retorna 1 per aquests avisos.
-- pip-audit: 15 dependències fixades auditades contra PyPI, cap vulnerabilitat coneguda.
-  Ordre: `pip-audit -r requirements-dev.lock --no-deps --disable-pip
-  --vulnerability-service pypi`. No s'hi han enviat dades d'activitats ni credencials.
-- `pip check`: correcte. Ruff check i format: correctes. Smoke offline: correcte.
+Revisió del conjunt de fitxers versionats + nous: patrons de claus privades, tokens
+de servei, JWT literals, credencials a URL, capçaleres binàries FIT/SQLite i extensions
+privades. L'únic FIT del smoke coincideix amb el generador sintètic. Regles Git
+verificades per a .env, FIT, exportacions, DB, claus i work/. Els resultats/cachés de les
+eines i staging sintètic queden a work/, fora de Git. És una revisió heurística/manual,
+no una demostració formal d'absència de secrets. No s'han llegit valors de credencials.
 
-Limitacions: els escaneigs són heurístics, no una certificació d'absència de secrets.
-L'auditoria de dependències cobreix el lock, no extensions futures, Python, sistema
-operatiu, serveis externs o dependències de build no fixades. La revisió de privacitat
-cobreix els fitxers preparats per Git; work/ conté eines, cachés i dades sintètiques i
-queda exclòs. No s'ha consultat el valor real de cap secret ni s'ha cridat Garmin.
-
-La connexió oficial continua pendent del contracte complet. Les FAQ confirmen
-ApiKey, OAuth2, vigència i absència de refresh tokens; això no verifica els DTO.
+GitHub Actions a la PR és una comprovació separada: el workflow executa pytest i Ruff;
+Bandit i pip-audit s'han executat localment en aquesta revisió. L'estat remot actual
+es consulta als checks de la PR, no s'infereix dels resultats locals.

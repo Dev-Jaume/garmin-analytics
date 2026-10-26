@@ -138,6 +138,12 @@ class Repository:
                     stream.flush()
                     os.fsync(stream.fileno())
                 os.replace(name, target)
+                if os.name == "posix":
+                    directory_fd = os.open(target.parent, os.O_RDONLY | os.O_DIRECTORY)
+                    try:
+                        os.fsync(directory_fd)
+                    finally:
+                        os.close(directory_fd)
             finally:
                 if os.path.exists(name):
                     os.unlink(name)
@@ -152,6 +158,27 @@ class Repository:
         activity_id: str | None = None,
     ) -> str:
         sha, path = self.archive(raw)
+        return self.save_archived(conn, data, sha, path, source, activity_id)
+
+    def save_archived(
+        self,
+        conn: Connection,
+        data: ActivityData,
+        sha: str,
+        path: str,
+        source: str,
+        activity_id: str | None = None,
+    ) -> str:
+        """Persisteix un original arxivat i verificat abans de la transacció.
+
+        Ús intern: el sincronitzador verifica SHA-256, existència i payload en staging.
+        Aquesta funció no fa xarxa, parsing FIT ni escriptures de fitxers.
+        """
+        expected = str(Path("originals") / sha[:2] / sha)
+        if len(sha) != 64 or any(c not in "0123456789abcdef" for c in sha) or path != expected:
+            raise ValueError("Referència d'original invàlida")
+        if not (self.data_dir / path).is_file():
+            raise ValueError("Original preparat absent")
         keys = [f"sha256:{sha}"]
         if data.identity:
             keys.append(data.identity)

@@ -69,3 +69,14 @@ def forbid_network(monkeypatch):
     monkeypatch.setattr(socket, "create_connection", denied)
     monkeypatch.setattr(socket.socket, "connect", denied)
     monkeypatch.setattr(socket.socket, "connect_ex", denied)
+
+
+def synthetic_jwt(exp=1_800_000_100, **claims):
+    """JWT deliberadament sense signatura vàlida; només per a MockTransport."""
+    import base64
+    import json
+
+    def encode(value):
+        return base64.urlsafe_b64encode(json.dumps(value).encode()).decode().rstrip("=")
+
+    return f"{encode({'alg': 'none'})}.{encode({'exp': exp, **claims})}.synthetic-signature"

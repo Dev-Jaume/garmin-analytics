@@ -1,59 +1,69 @@
-# Revisió de tancament de fase 1 — 26 d'octubre de 2026
+# Fase 1 — segona revisió de la PR #1
 
-## Estat funcional i contracte
+Data: 26 d'octubre de 2026. Branca `codex/phase1-ingestion`.
+[PR #1 en esborrany](https://github.com/Dev-Jaume/garmin-analytics/pull/1).
+No s'ha iniciat la fase 2, fusionat la PR, desplegat infraestructura ni accedit a Garmin real.
 
-Importació offline implementada amb Python 3.12, SQLAlchemy, SQLite i fitdecode.
-Es conserven originals, versions, registres, pauses, unitats i errors d'importació.
-Client i sincronitzador paginat provats només amb transport simulat.
+## Contracte oficial
 
-Les FAQ oficials confirmen generació OAuth2 amb Authorization: ApiKey i absència
-de refresh tokens. El client renova mitjançant una nova petició de token; una prova
-comprova també que ignora un refresh_token hipotètic retornat pel mock.
+El Swagger directe continua bloquejat pel proxy amb CONNECT 403 (no resposta de Garmin).
+S'ha consultat una font primària addicional: el client Python oficial garmin/connect-personal-api-python,
+commit ac111a0ff8e37dfbc24c616fcc27691520c7278b.
 
-El Swagger complet continua inaccessible: rebuig CONNECT 403 del proxy, no resposta
-403 de Garmin. No s'ha eludit el bloqueig. Rutes visibles a l'índex, però paràmetres,
-esquemes i capçalera de recursos encara provisionals. Detall a `API_CONTRACT.md`.
+S'ha corregit la hipòtesi anterior: el token és un JWT en text amb exp, no un JSON
+access_token/expires_in. Confirmats Authorization: ApiKey per obtenir-lo, Bearer
+per als recursos, start/limit al SDK i ZIP original per a la descàrrega. No hi ha refresh
+tokens i la nostra cache continua només en memòria. Detall, evidència i URLs fixades a
+`API_CONTRACT.md`. Els DTO complets i semàntica/quotes oficials continuen pendents:
+no s'afirma verificació completa ni s'habilita accés real.
 
-## Canvis sorgits de la revisió
+## Refactorització i recuperació
 
-- Validació de versió abans de crear taules; DB alienes/incompatibles queden intactes.
-- Rebuig de caducitat booleana del token.
-- Xarxa real prohibida a tota la suite; execució sense GARMIN_API_KEY heretada.
-- Proves explícites de no ús de refresh tokens i backup/restauració conjunta.
-- Exclusió Git ampliada per formats FIT/ubicacions i fitxers de claus.
-- CI preparada per instal·lar el lock auditat i la versió local sense canviar dependències.
+HTTP, parsing i staging es fan fora de SQL. Els originals es desen de manera immutable,
+amb manifests privats i hashes comprovats abans del commit de la pàgina. Activitats,
+versions i checkpoint es comprometen conjuntament; no hi ha SQL obert durant HTTP.
 
-## Resultats i privacitat
+En fallar, les pàgines compromeses queden intactes; la pendent es reprocessa. El staging
+íntegre de la mateixa execució evita repetir descàrregues. Si falta un manifest complet
+es torna a baixar l'activitat; si està corrupte es conserva i es rebutja. La represa
+reinicia el catàleg a zero per reduir omissions causades per desplaçaments d'offset.
+No hi ha atomicitat distribuïda filesystem/SQL: les fallades prèvies al commit poden
+produir originals orfes, que es conserven; una corrupció posterior necessita backup.
 
-55 proves superades; Ruff correcte; smoke idempotent i pip check correctes.
-pip-audit: 15 dependències, cap vulnerabilitat coneguda. Bandit: 3 avisos baixos
-revisats (ruta pública i jitter), cap mitjà/alt. Vegeu `VALIDATION.md`.
+## Auditoria ampliada
 
-Revisats els 31 fitxers candidats a publicació: sense credencials reals, dades de
-salut, FIT reals, ubicacions ni DB privades detectades. Només fixtures sintètiques.
-Cap petició autenticada a Garmin, cap desplegament i cap fase 2 iniciada.
+Offsets, IDs i hashes per pàgina/intents, duplicats interns i entre pàgines, conflictes,
+resums canviats i pàgines repetides. Segona lectura completa del catàleg sense FIT,
+amb comparació d'IDs, seqüència i signatures. S'identifiquen possibles omissions,
+altes/baixes o canvis de resum sense assumir que salts numèrics siguin dades perdudes.
 
-## Persistència
+Una reconciliació diferent/incompleta o incidències marca `unstable`; `exhausted`
+només indica dues lectures observades com a estables, sense provar historial complet.
+La cobertura es manté «Cobertura no verificada». Cal inventari extern i controlar
+quotes abans de fer dues passades reals.
 
-Codex Cloud és temporal. Magatzem canònic proposat: SQLite + originals en volum privat
-persistent extern i xifrat. Còpies conjuntes amb escriptors aturats, SQLite backup API,
-segona còpia privada i restauracions verificades amb hashes i integritat. Patró provat
-amb dades sintètiques; infraestructura persistent encara no seleccionada/aprovisionada.
-PostgreSQL privat futur requereix migració provada; canviar l'URL no trasllada l'historial.
-Procediment complet a `ARCHITECTURE.md`.
+## Persistència: dues propostes sense desplegar
 
-## Publicació per Pull Request
+A `ARCHITECTURE.md` s'especifiquen:
 
-Destí: Dev-Jaume/garmin-analytics, públic. Inicialment no tenia cap branca base.
-Després de l'autorització explícita de l'usuari s'ha publicat únicament el commit
-buit `86ef58c` com a main i la implementació revisada a `codex/phase1-ingestion`.
+- A: DigitalOcean Droplet 2 GiB + SQLite en volum LUKS 20 GiB + restic xifrat a Spaces
+  privat. Base calculada $19/mes, pressupost orientatiu $19–25, abans d'impostos.
+- B: PostgreSQL gestionat 1 GiB + worker 2 GiB + volum LUKS i Spaces.
+  Base $34.15/mes, amb reserva de 10 GiB DB addicionals $36.30; pressupost $35–45, abans d'impostos. Migració i proves
+  PostgreSQL encara necessàries; originals al volum privat persistent.
 
-[PR #1 en esborrany](https://github.com/Dev-Jaume/garmin-analytics/pull/1), amb 31
-fitxers de codi, tests, configuració i documentació. El commit d'implementació és
-`42c2623`; les actualitzacions posteriors de documentació no alteren el codi provat.
-No s'ha fusionat la PR, fet force-push ni desplegat cap servei. Les dades privades,
-FIT i DB continuen fora de Git. No s'ha fet cap petició autenticada a Garmin.
+Preus consultats a fonts oficials, costos variables i treball humà exclosos. S'hi
+expliquen avantatges, inconvenients, TLS/VPC, gestió de claus i backup/restauració.
+Codex treballa amb codi/fixtures; la producció es manté al worker. Accés VPN/TCP
+només amb configuració i autorització futures. Recomanació inicial A per un escriptor.
 
-L'estat actual de GitHub Actions es pot consultar a la PR. Els resultats locals
-verificats són els de `VALIDATION.md`; no s'han de confondre amb una execució remota.
-Inventari exacte a `FILES.md`.
+## Validació i privacitat
+
+82 proves superades, 0 fallades; Ruff, pip check i smoke correctes. Proves noves de
+fallades de xarxa/disc/SQL, interrupcions, staging, represa, detecció de canvis de
+catàleg i contracte JWT. Resum detallat a `VALIDATION.md`.
+
+pip-audit: 15 dependències, cap vulnerabilitat coneguda. Bandit: tres avisos baixos
+revisats (ruta pública i jitter), cap mitjà/alt. Revisió de candidats a publicació sense
+secrets reals, FIT, DB ni dades personals detectades. Només fixtures sintètiques;
+cap credencial Garmin llegida ni utilitzada. Tests amb xarxa real prohibida.

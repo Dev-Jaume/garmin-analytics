@@ -16,7 +16,7 @@ del contracte de l'API. No s'ha accedit al compte Garmin ni s'han utilitzat dade
   sincronització/importació, esquema versionat i arxiu immutable per SHA-256.
 - `garmin/client.py`: només el domini Personal API, token en memòria, renovació,
   reintents limitats, Retry-After, limitació de freqüència i mida, sense redireccions.
-- `garmin/sync.py`: paginació, transacció per pàgina, checkpoints, represa amb solapament,
+- `garmin/sync.py`: paginació, transacció per pàgina, checkpoints, represa des de zero amb staging,
   signatures de resum per evitar descàrregues repetides i refresc complet opcional.
 - `cli.py`: `init`, `import`, `coverage` i `sync` amb dues barreres explícites.
 - `tests/`: FIT binaris sintètics amb CRC independent i API HTTP simulada.
@@ -85,7 +85,7 @@ L'estat sempre és **«Cobertura no verificada»** fins a un contrast extern doc
 La sincronització torna a consultar el catàleg des de l'offset zero i només torna a
 baixar FIT quan canvia el resum. `--refresh` força relectura de detalls i FIT: necessari
 si Garmin modifica una activitat sense canviar el resum. No propaga eliminacions
-remotes. La represa rellegeix una pàgina; no ofereix garanties de snapshot amb offsets
+remotes. La represa torna a l'offset zero i reutilitza staging íntegre; no ofereix garanties de snapshot amb offsets
 mutables. Les interrupcions poden deixar originals orfes, però no pàgines parcials a DB.
 
 ## Documentació i següent pas
@@ -101,13 +101,19 @@ utilitzar sense API Key. Les fases 2–4 s'implementaran després de validar la 
 
 ## Tancament de fase 1
 
-La revisió posterior ha executat 55 proves, Ruff, Bandit i pip-audit. Les FAQ oficials
+La segona revisió ha executat 82 proves, Ruff, Bandit i pip-audit. Les FAQ oficials
 confirmen que no hi ha refresh tokens. Swagger continua parcialment verificat a
 causa del 403 del proxy; no s'ha fet cap petició autenticada. La persistència fora de
 Codex, el procediment de backup/restauració i la futura migració estan documentats a
-`docs/ARCHITECTURE.md`. Els 31 fitxers es preparen per a revisió en una PR, sense dades.
+`docs/ARCHITECTURE.md`. La implementació i les proves de recuperació es revisen a la PR #1, sense dades reals.
 
 Amb autorització explícita, s'ha inicialitzat main únicament amb el commit buit
 `86ef58c` i s'ha publicat la implementació a `codex/phase1-ingestion`. La
 [PR #1](https://github.com/Dev-Jaume/garmin-analytics/pull/1) està oberta en esborrany;
 no s'ha fusionat ni desplegat res. Els documents es poden consultar a la branca de la PR.
+
+La sincronització prepara originals i manifests privats fora de SQL, compromet cada
+pàgina amb el seu checkpoint i fa una segona lectura del catàleg. Discrepàncies es
+marquen com `unstable`; no impliquen eliminacions remotes ni cobertura completa.
+El token s'interpreta com JWT en text amb exp, contrastat amb el client Python oficial.
+Els DTO complets encara requereixen l'OAS; no s'ha habilitat accés autenticat.
