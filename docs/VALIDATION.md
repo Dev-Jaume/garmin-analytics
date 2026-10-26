@@ -6,7 +6,7 @@ xarxa reals; les execucions s'han fet amb GARMIN_API_KEY retirada del procés de
 
 | Ordre/comprovació | Resultat local |
 | --- | --- |
-| `env -u GARMIN_API_KEY work/venv/bin/python -m pytest -q` | **82 passed in 2.35s**, 0 fallades |
+| `env -u GARMIN_API_KEY work/venv/bin/python -m pytest -q` | **84 passed in 2.23s**, 0 fallades |
 | `ruff check src tests scripts` | Correcte |
 | `ruff format --check src tests scripts` | Correcte |
 | `python scripts/smoke_offline.py` | Dues importacions, una activitat sintètica única |

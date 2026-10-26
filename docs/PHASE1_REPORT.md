@@ -59,7 +59,7 @@ només amb configuració i autorització futures. Recomanació inicial A per un 
 
 ## Validació i privacitat
 
-82 proves superades, 0 fallades; Ruff, pip check i smoke correctes. Proves noves de
+84 proves superades, 0 fallades; Ruff, pip check i smoke correctes. Proves noves de
 fallades de xarxa/disc/SQL, interrupcions, staging, represa, detecció de canvis de
 catàleg i contracte JWT. Resum detallat a `VALIDATION.md`.
 

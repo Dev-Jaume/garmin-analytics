@@ -1,3 +1,5 @@
+import json
+
 import httpx
 import pytest
 from conftest import synthetic_fit, synthetic_jwt
@@ -343,6 +345,8 @@ def test_boolean_expiry_rejected(fit_bytes):
     "value",
     [
         "not-a-jwt",
+        json.dumps(synthetic_jwt()),
+        synthetic_jwt(10**400),
         synthetic_jwt(0),
         synthetic_jwt("future"),
         synthetic_jwt(None),

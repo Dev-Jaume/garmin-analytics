@@ -134,7 +134,11 @@ class GarminClient:
             parts = token.split(".")
             if len(parts) != 3 or any(not part for part in parts):
                 raise ValueError
-            if any(ord(c) < 33 or ord(c) > 126 for c in token):
+            if any(
+                c not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-"
+                for part in parts
+                for c in part
+            ):
                 raise ValueError
             payload = json.loads(base64.urlsafe_b64decode(parts[1] + "=" * (-len(parts[1]) % 4)))
             expiry = payload["exp"]
@@ -143,7 +147,7 @@ class GarminClient:
             remaining = expiry - self.wall_clock()
             if not math.isfinite(remaining) or remaining <= 0:
                 raise ValueError
-        except (ValueError, KeyError, TypeError, binascii.Error):
+        except (ValueError, KeyError, TypeError, OverflowError, binascii.Error):
             raise GarminError("Token JWT o caducitat exp no verificable") from None
         # exp només programa la memòria cau. No autentiquem ni validem signatures JWT;
         # el servidor Garmin verifica el token a través de TLS verificat.

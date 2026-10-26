@@ -101,7 +101,7 @@ utilitzar sense API Key. Les fases 2–4 s'implementaran després de validar la 
 
 ## Tancament de fase 1
 
-La segona revisió ha executat 82 proves, Ruff, Bandit i pip-audit. Les FAQ oficials
+La segona revisió ha executat 84 proves, Ruff, Bandit i pip-audit. Les FAQ oficials
 confirmen que no hi ha refresh tokens. Swagger continua parcialment verificat a
 causa del 403 del proxy; no s'ha fet cap petició autenticada. La persistència fora de
 Codex, el procediment de backup/restauració i la futura migració estan documentats a
