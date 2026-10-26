@@ -8,7 +8,7 @@ autouse; només dades, claus i transports sintètics.
 
 | Comprovació executada | Resultat |
 | --- | --- |
-| pytest complet | **114 passed, 1 skipped in 35.31s** |
+| pytest complet | **115 passed, 1 skipped in 23.76s** |
 | Ruff check i format | Correctes |
 | pip check | Cap dependència trencada |
 | AppTest | Totes les pàgines, historial buit/importat i estimacions opcionals, sense Internet |
@@ -76,6 +76,10 @@ Matriu Ubuntu + Windows amb Python 3.12, instal·lació des del lock, pytest, Ru
 diagnòstic del launcher. A Windows: test natiu de Vault i execució de Install.ps1 amb
 Windows PowerShell, sense navegador ni accessos directes al runner. El codi del
 workflow no injecta secrets. Els checks de la PR són la font de l'estat remot final.
+
+La fixture de bloqueig de xarxa permet únicament la connexió interna de `socketpair`
+en el mateix fil (necessària per a asyncio a Windows). Una prova comprova que les
+altres connexions continuen prohibides, incloses les de localhost.
 
 Encara no validat: winget sobre Windows personal sense Python, experiència visual
 real al navegador d'aquest PC, interrupció per tall elèctric/SIGKILL físic, grans

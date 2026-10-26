@@ -27,9 +27,9 @@ if (-not $Python) {
         throw 'Instal·la Python 3.12 de python.org i torna a obrir Instal·lar.cmd.'
     }
     & winget install --exact --id Python.Python.3.12 --scope user --accept-package-agreements --accept-source-agreements
-    if ($LASTEXITCODE -ne 0) { throw 'No s’ha pogut instal·lar Python. Visita python.org.' }
+    if ($LASTEXITCODE -ne 0) { throw 'No s''ha pogut instal·lar Python. Visita python.org.' }
     $Python = Join-Path $env:LOCALAPPDATA 'Programs\Python\Python312\python.exe'
-    if (-not (Test-Path $Python)) { throw 'Reobre Instal·lar.cmd després d’instal·lar Python.' }
+    if (-not (Test-Path $Python)) { throw 'Reobre Instal·lar.cmd després d''instal·lar Python.' }
 }
 & $Python -c 'import sys; assert sys.version_info[:2] == (3,12) and sys.maxsize > 2**32'
 if ($LASTEXITCODE -ne 0) { throw 'Cal Python 3.12 de 64 bits.' }
@@ -40,14 +40,14 @@ $Version = '0.2.0'
 $InstallId = [Guid]::NewGuid().ToString('N')
 $Venv = Join-Path $ProgramRoot "versions\$Version-$InstallId"
 & $Python -m venv $Venv
-if ($LASTEXITCODE -ne 0) { throw 'No s’ha pogut crear l’entorn Python.' }
+if ($LASTEXITCODE -ne 0) { throw 'No s''ha pogut crear l''entorn Python.' }
 $AppPython = Join-Path $Venv 'Scripts\python.exe'
 & $AppPython -m pip install --disable-pip-version-check -r (Join-Path $SourceRoot 'requirements-desktop.lock')
-if ($LASTEXITCODE -ne 0) { throw 'No s’han instal·lat les dependències. La versió anterior es conserva.' }
+if ($LASTEXITCODE -ne 0) { throw 'No s''han instal·lat les dependències. La versió anterior es conserva.' }
 & $AppPython -m pip install --no-deps $SourceRoot
-if ($LASTEXITCODE -ne 0) { throw 'No s’ha instal·lat l’aplicació. La versió anterior es conserva.' }
+if ($LASTEXITCODE -ne 0) { throw 'No s''ha instal·lat l''aplicació. La versió anterior es conserva.' }
 & $AppPython -m garmin_running.desktop.launcher --diagnose
-if ($LASTEXITCODE -ne 0) { throw 'La comprovació local d’instal·lació ha fallat.' }
+if ($LASTEXITCODE -ne 0) { throw 'La comprovació local d''instal·lació ha fallat.' }
 $Launcher = Join-Path $ProgramRoot 'Obrir.cmd'
 $LaunchText = "@echo off`r`nchcp 65001 >nul`r`n`"$AppPython`" -m garmin_running.desktop.launcher`r`n"
 [IO.File]::WriteAllText($Launcher, $LaunchText, [Text.UTF8Encoding]::new($false))
@@ -62,5 +62,5 @@ if (-not $NoShortcut) {
     $Shortcut.Save()
 }
 Write-Host "Instal·lació correcta. Dades locals: $DataRoot"
-Write-Host 'La clau només es configurarà dins l’aplicació. No es llegeix cap clau de Codex.'
+Write-Host 'La clau només es configurarà dins l''aplicació. No es llegeix cap clau de Codex.'
 if (-not $NoLaunch) { Start-Process -FilePath $Launcher }
