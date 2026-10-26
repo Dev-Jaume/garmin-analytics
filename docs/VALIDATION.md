@@ -77,6 +77,14 @@ diagnòstic del launcher. A Windows: test natiu de Vault i execució de Install.
 Windows PowerShell, sense navegador ni accessos directes al runner. El codi del
 workflow no injecta secrets. Els checks de la PR són la font de l'estat remot final.
 
+Execució remota verificada sobre `fa5f108`:
+[Actions 40337284778](https://github.com/Dev-Jaume/garmin-analytics/actions/runs/40337284778).
+**Ubuntu i Windows correctes**. Windows: **116 passed**, Ruff i diagnòstic correctes,
+instal·lació completa en un entorn nou amb Windows PowerShell 5.1 completada.
+Inclou el round-trip natiu de Vault amb credencial sintètica eliminada en acabar.
+No inclou obrir el navegador o crear l'accés directe al runner; aquests passos encara
+requereixen comprovació visual en el PC de l'usuari.
+
 La fixture de bloqueig de xarxa permet únicament la connexió interna de `socketpair`
 en el mateix fil (necessària per a asyncio a Windows). Una prova comprova que les
 altres connexions continuen prohibides, incloses les de localhost.

@@ -55,6 +55,10 @@ interrupció/represa, índex i backup/restauració. Resultats exactes a VALIDATI
 La CI inclou Windows/Linux, un round-trip sintètic de Windows Credential Manager i
 execució de l'instal·lador sense obrir navegador ni crear accessos a l'escriptori del runner.
 L'estat remot només es considera superat quan ho mostren els checks de la PR.
+L'execució [40337284778](https://github.com/Dev-Jaume/garmin-analytics/actions/runs/40337284778)
+sobre `fa5f108` ha superat Ubuntu i Windows, inclosa la instal·lació completa.
+Windows: 116 proves correctes, amb Vault natiu sintètic. Local Linux: 115 correctes
+i una omesa perquè requereix Windows. Cap prova ha utilitzat un compte Garmin real.
 
 L'auditoria va detectar tres vulnerabilitats a filelock 3.32.7; s'ha actualitzat a
 4.2.4 i repetit l'auditoria de les versions del lock, incloses les específiques Windows.
