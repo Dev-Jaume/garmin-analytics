@@ -42,17 +42,18 @@ amb dades sintètiques; infraestructura persistent encara no seleccionada/aprovi
 PostgreSQL privat futur requereix migració provada; canviar l'URL no trasllada l'historial.
 Procediment complet a `ARCHITECTURE.md`.
 
-## Preparació de Pull Request
+## Publicació per Pull Request
 
-Destí: Dev-Jaume/garmin-analytics, públic i buit segons l'API GitHub. No té cap branca
-base remota: no es pot obrir una PR comparant implementació contra una main inexistent.
+Destí: Dev-Jaume/garmin-analytics, públic. Inicialment no tenia cap branca base.
+Després de l'autorització explícita de l'usuari s'ha publicat únicament el commit
+buit `86ef58c` com a main i la implementació revisada a `codex/phase1-ingestion`.
 
-S'han preparat els 31 fitxers, una base local buida i una branca d'implementació per
-revisar. No s'ha inicialitzat ni escrit al repositori remot. Alternativa segura proposada:
+[PR #1 en esborrany](https://github.com/Dev-Jaume/garmin-analytics/pull/1), amb 31
+fitxers de codi, tests, configuració i documentació. El commit d'implementació és
+`42c2623`; les actualitzacions posteriors de documentació no alteren el codi provat.
+No s'ha fusionat la PR, fet force-push ni desplegat cap servei. Les dades privades,
+FIT i DB continuen fora de Git. No s'ha fet cap petició autenticada a Garmin.
 
-1. Autoritzar publicar únicament el commit buit inicial com a main.
-2. Publicar la branca d'implementació derivada, comprovada i sense dades privades.
-3. Obrir una PR en esborrany amb proves, riscos i contracte pendent.
-4. Revisar la PR abans de qualsevol merge; sense force-push ni desplegaments.
-
-No cal introduir cap API Key per aquests passos. Inventari exacte a `FILES.md`.
+L'estat actual de GitHub Actions es pot consultar a la PR. Els resultats locals
+verificats són els de `VALIDATION.md`; no s'han de confondre amb una execució remota.
+Inventari exacte a `FILES.md`.

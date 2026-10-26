@@ -107,7 +107,7 @@ causa del 403 del proxy; no s'ha fet cap petició autenticada. La persistència 
 Codex, el procediment de backup/restauració i la futura migració estan documentats a
 `docs/ARCHITECTURE.md`. Els 31 fitxers es preparen per a revisió en una PR, sense dades.
 
-El repositori remot és buit. Alternativa proposada: crear a main només un commit
-buit inicial; publicar la implementació en una branca derivada i obrir una PR en
-esborrany. No publicar tota la implementació directament a main, no fer force-push
-ni fusionar la PR. La inicialització remota queda pendent d'autorització.
+Amb autorització explícita, s'ha inicialitzat main únicament amb el commit buit
+`86ef58c` i s'ha publicat la implementació a `codex/phase1-ingestion`. La
+[PR #1](https://github.com/Dev-Jaume/garmin-analytics/pull/1) està oberta en esborrany;
+no s'ha fusionat ni desplegat res. Els documents es poden consultar a la branca de la PR.
