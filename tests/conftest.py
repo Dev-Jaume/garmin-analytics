@@ -2,6 +2,7 @@
 
 import socket
 import struct
+import threading
 
 import pytest
 
@@ -66,8 +67,28 @@ def forbid_network(monkeypatch):
     def denied(*_args, **_kwargs):
         raise AssertionError("Xarxa real prohibida a la suite de proves")
 
+    # Windows implements socketpair with a loopback connection. asyncio needs
+    # this internal wake-up pipe; only permit connect inside socketpair on the
+    # same thread, never arbitrary loopback or external application requests.
+    original_pair = socket.socketpair
+    original_connect = socket.socket.connect
+    internal = threading.local()
+
+    def socketpair(*args, **kwargs):
+        internal.socketpair = True
+        try:
+            return original_pair(*args, **kwargs)
+        finally:
+            internal.socketpair = False
+
+    def connect(sock, address):
+        if getattr(internal, "socketpair", False) and address[0] in ("127.0.0.1", "::1"):
+            return original_connect(sock, address)
+        return denied()
+
+    monkeypatch.setattr(socket, "socketpair", socketpair)
     monkeypatch.setattr(socket, "create_connection", denied)
-    monkeypatch.setattr(socket.socket, "connect", denied)
+    monkeypatch.setattr(socket.socket, "connect", connect)
     monkeypatch.setattr(socket.socket, "connect_ex", denied)
 
 

@@ -1,5 +1,6 @@
 """Windows i treball local: sense credencials reals ni xarxa."""
 
+import socket
 import sqlite3
 import threading
 from datetime import date, timedelta
@@ -20,6 +21,18 @@ from garmin_running.fit.parser import parse_fit
 from garmin_running.physiology.friel import NAMES, heart_rate_zones, time_in_zones, zone_of
 from garmin_running.storage.repository import Repository, activity_index
 from garmin_running.vdot.vdot_engine import current_performance, equivalent_seconds, vdot
+
+
+def test_network_guard_allows_only_internal_socketpair():
+    reader, writer = socket.socketpair()
+    with reader, writer:
+        assert reader.fileno() >= 0
+        assert writer.fileno() >= 0
+        for address in (("127.0.0.1", 9), ("192.0.2.1", 443)):
+            with pytest.raises(AssertionError, match="Xarxa real"):
+                reader.connect(address)
+            with pytest.raises(AssertionError, match="Xarxa real"):
+                socket.create_connection(address)
 
 
 class MemoryCredentials:
